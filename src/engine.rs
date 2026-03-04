@@ -258,6 +258,11 @@ async fn run_prompt_step(
         if let Some(plan_path) = &config.plan
             && output_var == PLAN_VAR_NAME
         {
+            if let Some(parent) = std::path::Path::new(plan_path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
             std::fs::write(plan_path, &result.output)?;
         }
         vars.set_named_value(output_var, result.output.clone());
