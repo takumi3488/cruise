@@ -335,6 +335,14 @@ fn get_next_step(
 }
 
 /// Print a dry-run summary of the workflow flow.
+fn print_env_vars(env: &HashMap<String, String>, indent: &str) {
+    let mut keys: Vec<&String> = env.keys().collect();
+    keys.sort();
+    for k in keys {
+        println!("{}{}={}", indent, k, env[k]);
+    }
+}
+
 fn print_dry_run(config: &WorkflowConfig, from: Option<&str>) -> Result<()> {
     println!("{}", style("=== Dry Run: Workflow Flow ===").bold());
     println!("command: {}", config.command.join(" "));
@@ -349,11 +357,7 @@ fn print_dry_run(config: &WorkflowConfig, from: Option<&str>) -> Result<()> {
 
     if !config.env.is_empty() {
         println!("env:");
-        let mut keys: Vec<&String> = config.env.keys().collect();
-        keys.sort();
-        for k in keys {
-            println!("  {}={}", k, config.env[k]);
-        }
+        print_env_vars(&config.env, "  ");
     }
 
     println!("\nsteps:");
@@ -402,11 +406,7 @@ fn print_dry_run(config: &WorkflowConfig, from: Option<&str>) -> Result<()> {
         }
 
         if !step.env.is_empty() {
-            let mut keys: Vec<&String> = step.env.keys().collect();
-            keys.sort();
-            for k in keys {
-                println!("    env: {}={}", k, step.env[k]);
-            }
+            print_env_vars(&step.env, "    env: ");
         }
     }
 
