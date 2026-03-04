@@ -131,6 +131,46 @@ fn prompt_select_config(files: &[PathBuf]) -> Result<PathBuf> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::PathBuf;
+
+    /// RAII guard that restores the working directory on drop.
+    struct DirGuard(PathBuf);
+    impl DirGuard {
+        fn new() -> Self {
+            Self(std::env::current_dir().unwrap())
+        }
+    }
+    impl Drop for DirGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.0);
+        }
+    }
+
+    /// RAII guard that restores a single environment variable on drop.
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<String>,
+    }
+    impl EnvGuard {
+        fn set(key: &'static str, value: &std::ffi::OsStr) -> Self {
+            let prev = std::env::var(key).ok();
+            // SAFETY: single-threaded test, no concurrent env access.
+            unsafe { std::env::set_var(key, value) };
+            Self { key, prev }
+        }
+    }
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: single-threaded test, no concurrent env access.
+            unsafe {
+                if let Some(ref v) = self.prev {
+                    std::env::set_var(self.key, v);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
 
     // ---- explicit path ----
 
@@ -156,29 +196,14 @@ mod tests {
     fn test_resolve_builtin_fallback() {
         // Run in a temp dir that has no cruise.yaml and no HOME/.cruise.
         let tmp_dir = tempfile::tempdir().unwrap();
-        let prev_dir = std::env::current_dir().unwrap();
+        let _dir_guard = DirGuard::new();
         std::env::set_current_dir(tmp_dir.path()).unwrap();
 
         // Point HOME to a dir without .cruise to avoid ~/.cruise interference.
         let fake_home = tempfile::tempdir().unwrap();
-        let prev_home = std::env::var("HOME").ok();
-        // SAFETY: single-threaded test, no concurrent env access.
-        unsafe { std::env::set_var("HOME", fake_home.path()) };
+        let _home_guard = EnvGuard::set("HOME", fake_home.path().as_os_str());
 
-        let result = resolve_config(None);
-
-        // Restore env.
-        std::env::set_current_dir(prev_dir).unwrap();
-        // SAFETY: single-threaded test, no concurrent env access.
-        unsafe {
-            if let Some(h) = prev_home {
-                std::env::set_var("HOME", h);
-            } else {
-                std::env::remove_var("HOME");
-            }
-        }
-
-        let (yaml, source) = result.unwrap();
+        let (yaml, source) = resolve_config(None).unwrap();
         assert!(yaml.contains("steps"));
         assert!(matches!(source, ConfigSource::Builtin));
     }
@@ -195,14 +220,10 @@ mod tests {
         )
         .unwrap();
 
-        let prev_dir = std::env::current_dir().unwrap();
+        let _dir_guard = DirGuard::new();
         std::env::set_current_dir(tmp_dir.path()).unwrap();
 
-        let result = resolve_config(None);
-
-        std::env::set_current_dir(prev_dir).unwrap();
-
-        let (yaml, source) = result.unwrap();
+        let (yaml, source) = resolve_config(None).unwrap();
         assert!(yaml.contains("echo"));
         assert!(matches!(source, ConfigSource::Local(_)));
     }
