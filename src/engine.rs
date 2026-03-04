@@ -244,14 +244,18 @@ async fn run_prompt_step(
         (config.command.clone(), effective_model.map(str::to_string))
     };
 
+    let spinner = crate::spinner::start_spinner("Cruising...");
     let result = run_prompt(
         &resolved_command,
         model_arg.as_deref(),
         &prompt,
         rate_limit_retries,
         env,
+        Some(&spinner),
     )
-    .await?;
+    .await;
+    crate::spinner::clear_spinner(&spinner);
+    let result = result?;
 
     if let Some(output_var) = &step.output {
         // Write to the plan file if this output is bound to it.
