@@ -133,16 +133,26 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
 
-    /// RAII guard that restores the working directory on drop.
-    struct DirGuard(PathBuf);
+    /// Mutex to serialize tests that mutate process-global state (cwd, env vars).
+    static GLOBAL_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII guard that serializes access to global state and restores the working directory on drop.
+    struct DirGuard {
+        prev: PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
     impl DirGuard {
         fn new() -> Self {
-            Self(std::env::current_dir().unwrap())
+            let lock = GLOBAL_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            Self {
+                prev: std::env::current_dir().unwrap(),
+                _lock: lock,
+            }
         }
     }
     impl Drop for DirGuard {
         fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.0);
+            let _ = std::env::set_current_dir(&self.prev);
         }
     }
 
@@ -154,14 +164,14 @@ mod tests {
     impl EnvGuard {
         fn set(key: &'static str, value: &std::ffi::OsStr) -> Self {
             let prev = std::env::var(key).ok();
-            // SAFETY: single-threaded test, no concurrent env access.
+            // SAFETY: caller holds GLOBAL_ENV_LOCK, so no concurrent env access.
             unsafe { std::env::set_var(key, value) };
             Self { key, prev }
         }
     }
     impl Drop for EnvGuard {
         fn drop(&mut self) {
-            // SAFETY: single-threaded test, no concurrent env access.
+            // SAFETY: caller holds GLOBAL_ENV_LOCK, so no concurrent env access.
             unsafe {
                 if let Some(ref v) = self.prev {
                     std::env::set_var(self.key, v);
