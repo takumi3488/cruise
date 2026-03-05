@@ -26,12 +26,12 @@ struct WorktreeGuard {
 
 impl Drop for WorktreeGuard {
     fn drop(&mut self) {
-        if !self.keep {
-            if let Some(ctx) = self.ctx.take() {
-                let _ = std::env::set_current_dir(&self.original_dir);
-                if let Err(e) = worktree::cleanup_worktree(&ctx) {
-                    eprintln!("warning: worktree cleanup failed: {}", e);
-                }
+        if !self.keep
+            && let Some(ctx) = self.ctx.take()
+        {
+            let _ = std::env::set_current_dir(&self.original_dir);
+            if let Err(e) = worktree::cleanup_worktree(&ctx) {
+                eprintln!("warning: worktree cleanup failed: {}", e);
             }
         }
     }
@@ -49,7 +49,10 @@ pub async fn run(args: Args) -> Result<()> {
 
     if args.dry_run {
         if use_worktree {
-            eprintln!("{}", style("worktree: enabled (dry-run, not created)").dim());
+            eprintln!(
+                "{}",
+                style("worktree: enabled (dry-run, not created)").dim()
+            );
         }
         return print_dry_run(&config, args.from.as_deref());
     }
