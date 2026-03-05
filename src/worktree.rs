@@ -249,15 +249,15 @@ fn list_cruise_worktrees(repo_dir: &Path) -> Result<Vec<WorktreeInfo>> {
             }
             current_path = Some(PathBuf::from(path_str));
             current_branch = None;
-        } else if let Some(branch_ref) = line.strip_prefix("branch ") {
-            if branch_ref.starts_with("refs/heads/cruise/") {
-                current_branch = Some(
-                    branch_ref
-                        .strip_prefix("refs/heads/")
-                        .unwrap_or(branch_ref)
-                        .to_string(),
-                );
-            }
+        } else if let Some(branch_ref) = line.strip_prefix("branch ")
+            && branch_ref.starts_with("refs/heads/cruise/")
+        {
+            current_branch = Some(
+                branch_ref
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(branch_ref)
+                    .to_string(),
+            );
         }
     }
     // Flush the last block.
