@@ -5,6 +5,7 @@ mod display;
 mod engine;
 mod error;
 mod file_tracker;
+mod multiline_input;
 mod resolver;
 mod spinner;
 mod state;
