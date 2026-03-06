@@ -68,7 +68,7 @@ pub fn truncate(s: &str, max: usize) -> String {
     if first_line.chars().count() <= max {
         first_line.to_string()
     } else {
-        format!("{}...", first_line.chars().take(max).collect::<String>())
+        format!("{}…", first_line.chars().take(max).collect::<String>())
     }
 }
 

@@ -49,14 +49,14 @@ pub async fn run(args: RunArgs) -> Result<()> {
     }
 
     // Determine start step.
-    let start_step = session.current_step.clone().unwrap_or_else(|| {
+    let start_step = session.current_step.clone().map(Ok).unwrap_or_else(|| {
         config
             .steps
             .keys()
             .next()
-            .expect("config has no steps")
-            .clone()
-    });
+            .ok_or_else(|| CruiseError::Other("config has no steps".to_string()))
+            .map(|k| k.clone())
+    })?;
 
     // chdir to base_dir.
     let base_dir = session.base_dir.clone();

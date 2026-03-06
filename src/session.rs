@@ -179,11 +179,10 @@ impl SessionManager {
             if !matches!(session.phase, SessionPhase::Completed) {
                 continue;
             }
-            let completed_secs = session
-                .completed_at
-                .as_deref()
-                .and_then(parse_iso8601_secs)
-                .unwrap_or(0);
+            let Some(completed_secs) = session.completed_at.as_deref().and_then(parse_iso8601_secs)
+            else {
+                continue;
+            };
             if now_secs.saturating_sub(completed_secs) < threshold_secs {
                 continue;
             }

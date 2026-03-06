@@ -248,7 +248,7 @@ async fn run_ask_plan(
     );
     let prompt = vars.resolve(&prompt_template)?;
     let step = PromptStep {
-        model: config.model.clone(),
+        model: config.plan_model.clone().or_else(|| config.model.clone()),
         prompt,
         instruction: None,
     };
