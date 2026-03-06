@@ -123,7 +123,8 @@ pub async fn run(args: RunArgs) -> Result<()> {
 
     // Cleanup worktree unless --keep-worktree.
     if !args.keep_worktree
-        && let Err(e) = worktree::cleanup_worktree(&ctx) {
+        && let Err(e) = worktree::cleanup_worktree(&ctx)
+    {
         eprintln!("warning: worktree cleanup failed: {}", e);
     }
 

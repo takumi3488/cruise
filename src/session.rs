@@ -192,17 +192,17 @@ impl SessionManager {
                 (&session.worktree_path, &session.worktree_branch)
                 && wt_path.exists()
             {
-                    let ctx = crate::worktree::WorktreeContext {
-                        path: wt_path.clone(),
-                        branch: wt_branch.clone(),
-                        original_dir: session.base_dir.clone(),
-                    };
-                    if let Err(e) = crate::worktree::cleanup_worktree(&ctx) {
-                        eprintln!(
-                            "warning: failed to remove worktree for {}: {}",
-                            session.id, e
-                        );
-                    }
+                let ctx = crate::worktree::WorktreeContext {
+                    path: wt_path.clone(),
+                    branch: wt_branch.clone(),
+                    original_dir: session.base_dir.clone(),
+                };
+                if let Err(e) = crate::worktree::cleanup_worktree(&ctx) {
+                    eprintln!(
+                        "warning: failed to remove worktree for {}: {}",
+                        session.id, e
+                    );
+                }
             }
 
             self.delete(&session.id)?;
