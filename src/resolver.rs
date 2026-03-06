@@ -36,9 +36,8 @@ impl ConfigSource {
 /// Resolution order:
 /// 1. `explicit` (`-c` flag) — error if file does not exist.
 /// 2. `CRUISE_CONFIG` env var — error if file does not exist.
-/// 3. `./cruise.yaml` → `./cruise.yml` in the current directory.
-/// 4. `./.cruise.yaml` → `./.cruise.yml` in the current directory.
-/// 5. `~/.cruise/*.yaml` / `*.yml` — auto-select if exactly one, else prompt.
+/// 3. `./cruise.yaml` → `./cruise.yml` → `./.cruise.yaml` → `./.cruise.yml`.
+/// 4. `~/.cruise/*.yaml` / `*.yml` — auto-select if exactly one, else prompt.
 /// 6. Built-in default.
 pub fn resolve_config(explicit: Option<&str>) -> Result<(String, ConfigSource)> {
     // 1. Explicit path (-c flag).
@@ -59,26 +58,17 @@ pub fn resolve_config(explicit: Option<&str>) -> Result<(String, ConfigSource)> 
         let buf = PathBuf::from(&env_path);
         let yaml = std::fs::read_to_string(&buf).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                CruiseError::ConfigNotFound(env_path.clone())
+                CruiseError::ConfigNotFound(env_path)
             } else {
-                CruiseError::Other(format!("failed to read '{}': {}", env_path, e))
+                CruiseError::Other(format!("failed to read '{}': {}", buf.display(), e))
             }
         })?;
         return Ok((yaml, ConfigSource::EnvVar(buf)));
     }
 
-    // 3. ./cruise.yaml → ./cruise.yml
-    for name in &["cruise.yaml", "cruise.yml"] {
-        if let Some(result) = try_read_local(name) {
-            let (yaml, path) = result?;
-            return Ok((yaml, ConfigSource::Local(path)));
-        }
-    }
-
-    // 4. ./.cruise.yaml → ./.cruise.yml
-    for name in &[".cruise.yaml", ".cruise.yml"] {
-        if let Some(result) = try_read_local(name) {
-            let (yaml, path) = result?;
+    // 3-4. Local config files: visible first, then hidden.
+    for name in &["cruise.yaml", "cruise.yml", ".cruise.yaml", ".cruise.yml"] {
+        if let Some((yaml, path)) = try_read_local(name)? {
             return Ok((yaml, ConfigSource::Local(path)));
         }
     }
@@ -104,17 +94,17 @@ pub fn resolve_config(explicit: Option<&str>) -> Result<(String, ConfigSource)> 
     Ok((DEFAULT_CONFIG.to_string(), ConfigSource::Builtin))
 }
 
-/// Try to read a local file by name. Returns `None` if not found, `Some(Ok(...))` on success,
-/// or `Some(Err(...))` on other I/O errors.
-fn try_read_local(name: &str) -> Option<Result<(String, PathBuf)>> {
+/// Try to read a local file by name. Returns `Ok(None)` if not found, `Ok(Some(...))` on
+/// success, or `Err(...)` on other I/O errors.
+fn try_read_local(name: &str) -> Result<Option<(String, PathBuf)>> {
     let path = PathBuf::from(name);
     match std::fs::read_to_string(&path) {
-        Ok(yaml) => Some(Ok((yaml, path))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => Some(Err(CruiseError::Other(format!(
+        Ok(yaml) => Ok(Some((yaml, path))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(CruiseError::Other(format!(
             "failed to read '{}': {}",
             name, e
-        )))),
+        ))),
     }
 }
 
