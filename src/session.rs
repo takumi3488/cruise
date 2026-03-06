@@ -202,13 +202,13 @@ impl SessionManager {
             }
 
             // Remove the git worktree if it still exists.
-            if let Some(ctx) = session.worktree_context() {
-                if let Err(e) = crate::worktree::cleanup_worktree(&ctx) {
-                    eprintln!(
-                        "warning: failed to remove worktree for {}: {}",
-                        session.id, e
-                    );
-                }
+            if let Some(ctx) = session.worktree_context()
+                && let Err(e) = crate::worktree::cleanup_worktree(&ctx)
+            {
+                eprintln!(
+                    "warning: failed to remove worktree for {}: {}",
+                    session.id, e
+                );
             }
 
             self.delete(&session.id)?;
