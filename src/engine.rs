@@ -48,6 +48,7 @@ pub async fn execute_steps(
     // (A) Pre-calculate group info.
     let mut group_first: HashMap<String, String> = HashMap::new();
     let mut group_last: HashMap<String, String> = HashMap::new();
+    let mut group_size: HashMap<String, usize> = HashMap::new();
     let mut step_to_group: HashMap<String, String> = HashMap::new();
     let mut group_retry_counts: HashMap<String, usize> = HashMap::new();
     for (name, step) in &config.steps {
@@ -57,6 +58,7 @@ pub async fn execute_steps(
                 .entry(group_name.clone())
                 .or_insert_with(|| name.clone());
             group_last.insert(group_name.clone(), name.clone());
+            *group_size.entry(group_name.clone()).or_insert(0) += 1;
         }
     }
 
@@ -66,8 +68,10 @@ pub async fn execute_steps(
             .get(&current_step)
             .ok_or_else(|| CruiseError::StepNotFound(current_step.clone()))?;
 
+        let step_group_name = step_to_group.get(&current_step).map(|s| s.as_str());
+
         // (B) Group max_retries skip check (before individual should_skip).
-        if let Some(group_name) = step_to_group.get(&current_step) {
+        if let Some(group_name) = step_group_name {
             let is_first = group_first.get(group_name) == Some(&current_step);
             if is_first
                 && let Some(group_cfg) = config.groups.get(group_name)
@@ -84,8 +88,9 @@ pub async fn execute_steps(
                     .get(group_name)
                     .cloned()
                     .unwrap_or_else(|| current_step.clone());
-                step_index += 1;
-                steps_skipped += 1;
+                let count = group_size.get(group_name).copied().unwrap_or(1);
+                step_index += count;
+                steps_skipped += count;
                 match get_next_step(config, &last_step, None) {
                     Some(next) => {
                         current_step = next;
@@ -144,7 +149,7 @@ pub async fn execute_steps(
         }
 
         // (C) Group snapshot at start of group.
-        if let Some(group_name) = step_to_group.get(&current_step) {
+        if let Some(group_name) = step_group_name {
             let is_first = group_first.get(group_name) == Some(&current_step);
             if is_first
                 && let Some(group_cfg) = config.groups.get(group_name)
@@ -153,8 +158,7 @@ pub async fn execute_steps(
                     .as_ref()
                     .is_some_and(|c| c.file_changed.is_some())
             {
-                let key = format!("__group__{}", group_name);
-                tracker.take_snapshot(&key)?;
+                tracker.take_snapshot(&group_snapshot_key(group_name))?;
             }
         }
 
@@ -215,16 +219,17 @@ pub async fn execute_steps(
         };
 
         // (D) Group file-change check at end of group.
-        let group_if_next = if let Some(group_name) = step_to_group.get(&current_step) {
+        let group_if_next = if let Some(group_name) = step_group_name {
             let is_last = group_last.get(group_name) == Some(&current_step);
             if is_last
                 && let Some(group_cfg) = config.groups.get(group_name)
                 && let Some(ref if_cond) = group_cfg.if_condition
                 && let Some(ref target) = if_cond.file_changed
             {
-                let key = format!("__group__{}", group_name);
-                if tracker.has_files_changed(&key)? {
-                    *group_retry_counts.entry(group_name.clone()).or_insert(0) += 1;
+                if tracker.has_files_changed(&group_snapshot_key(group_name))? {
+                    *group_retry_counts
+                        .entry(group_name.to_string())
+                        .or_insert(0) += 1;
                     eprintln!(
                         "  {} files changed in group '{}', jumping to: {}",
                         style("↻").cyan(),
@@ -312,6 +317,11 @@ pub(crate) fn log_step_result(elapsed: std::time::Duration, success: bool) {
             style(format!("✗ {}", format_duration(elapsed))).red()
         );
     }
+}
+
+/// Build the FileTracker snapshot key for a group.
+fn group_snapshot_key(group_name: &str) -> String {
+    format!("__group__{}", group_name)
 }
 
 /// Format a duration as a human-readable string.

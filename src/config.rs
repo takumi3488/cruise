@@ -136,30 +136,24 @@ pub fn validate_groups(config: &WorkflowConfig) -> crate::error::Result<()> {
     use crate::error::CruiseError;
     use std::collections::HashSet;
 
-    for (step_name, step) in &config.steps {
-        if let Some(group_name) = &step.group {
-            if !config.groups.contains_key(group_name) {
-                return Err(CruiseError::InvalidStepConfig(format!(
-                    "step '{}' references undefined group '{}'",
-                    step_name, group_name
-                )));
-            }
-            if step.if_condition.is_some() {
-                return Err(CruiseError::InvalidStepConfig(format!(
-                    "step '{}' has both a group and an individual 'if' condition; use only the group's 'if'",
-                    step_name
-                )));
-            }
-        }
-    }
-
-    // Verify consecutive grouping.
     let mut current_group: Option<&str> = None;
     let mut seen_groups: HashSet<&str> = HashSet::new();
 
     for (step_name, step) in &config.steps {
         match step.group.as_deref() {
             Some(group_name) => {
+                if !config.groups.contains_key(group_name) {
+                    return Err(CruiseError::InvalidStepConfig(format!(
+                        "step '{}' references undefined group '{}'",
+                        step_name, group_name
+                    )));
+                }
+                if step.if_condition.is_some() {
+                    return Err(CruiseError::InvalidStepConfig(format!(
+                        "step '{}' has both a group and an individual 'if' condition; use only the group's 'if'",
+                        step_name
+                    )));
+                }
                 if current_group != Some(group_name) {
                     if seen_groups.contains(group_name) {
                         return Err(CruiseError::InvalidStepConfig(format!(
