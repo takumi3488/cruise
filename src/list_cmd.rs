@@ -41,11 +41,11 @@ pub async fn run() -> Result<()> {
 
         let mut actions = vec![];
         if can_run {
-            if matches!(session.phase, SessionPhase::Running) {
-                actions.push("Resume");
+            actions.push(if session.phase.is_running() {
+                "Resume"
             } else {
-                actions.push("Run");
-            }
+                "Run"
+            });
         }
         actions.push("Delete");
         actions.push("Back");

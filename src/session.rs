@@ -28,6 +28,11 @@ impl SessionPhase {
     pub fn is_runnable(&self) -> bool {
         matches!(self, Self::Planned | Self::Running | Self::Failed(_))
     }
+
+    /// Whether this phase represents an actively running session.
+    pub fn is_running(&self) -> bool {
+        matches!(self, Self::Running)
+    }
 }
 
 /// Persisted state for a single session.
