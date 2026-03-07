@@ -99,7 +99,10 @@ pub fn resolve_config(explicit: Option<&str>) -> Result<(String, ConfigSource)> 
 fn try_read_local(name: &str) -> Result<Option<(String, PathBuf)>> {
     let path = PathBuf::from(name);
     match std::fs::read_to_string(&path) {
-        Ok(yaml) => Ok(Some((yaml, path))),
+        Ok(yaml) => {
+            let abs_path = path.canonicalize().unwrap_or(path);
+            Ok(Some((yaml, abs_path)))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(CruiseError::Other(format!(
             "failed to read '{}': {}",
