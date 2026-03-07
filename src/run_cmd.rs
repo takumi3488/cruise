@@ -9,7 +9,9 @@ use crate::config::{WorkflowConfig, validate_groups};
 use crate::engine::{execute_steps, print_dry_run};
 use crate::error::{CruiseError, Result};
 use crate::file_tracker::FileTracker;
-use crate::session::{SessionManager, SessionPhase, current_iso8601, get_cruise_home};
+use crate::session::{
+    SessionManager, SessionPhase, SessionState, current_iso8601, get_cruise_home,
+};
 use crate::variable::VariableStore;
 use crate::worktree;
 
@@ -137,7 +139,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
             match create_pr(&ctx.path, &ctx.branch) {
                 Ok(url) => {
                     eprintln!("{} PR created: {}", style("✓").green().bold(), url);
-                    session.pr_url = Some(url);
+                    record_pr_url(&manager, session, url)?;
                 }
                 Err(e) => {
                     eprintln!("warning: PR creation failed: {}", e);
@@ -189,6 +191,11 @@ fn create_pr(worktree_path: &Path, branch: &str) -> Result<String> {
         "gh pr create failed: {}; gh pr view also failed: {}",
         create_stderr, view_stderr
     )))
+}
+
+fn record_pr_url(manager: &SessionManager, session: &mut SessionState, url: String) -> Result<()> {
+    session.pr_url = Some(url);
+    manager.save(session)
 }
 
 /// Trim and return a non-empty line from `gh` stdout bytes, or `None`.
@@ -261,4 +268,37 @@ fn select_pending_session(manager: &SessionManager) -> Result<String> {
 
     let idx = labels.iter().position(|l| l.as_str() == selected).unwrap();
     Ok(pending[idx].id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn test_record_pr_url_persists_to_state_json() {
+        let tmp = TempDir::new().unwrap();
+        let manager = SessionManager::new(tmp.path().to_path_buf());
+        let id = "20260307180000".to_string();
+        let mut session = SessionState::new(
+            id.clone(),
+            PathBuf::from("/repo"),
+            "cruise.yaml".to_string(),
+            "task".to_string(),
+        );
+        manager.create(&session).unwrap();
+
+        let url = "https://github.com/owner/repo/pull/42".to_string();
+        record_pr_url(&manager, &mut session, url.clone()).unwrap();
+
+        let state_json = std::fs::read_to_string(manager.sessions_dir().join(&id).join("state.json"))
+            .unwrap();
+        assert!(state_json.contains(&url));
+
+        let loaded = manager.load(&id).unwrap();
+        assert_eq!(loaded.pr_url, Some(url));
+    }
 }
