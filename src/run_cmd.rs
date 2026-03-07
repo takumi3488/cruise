@@ -186,7 +186,10 @@ fn create_pr(worktree_path: &Path, branch: &str) -> Result<String> {
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(CruiseError::Other(format!("gh pr create failed: {}", stderr)))
+    Err(CruiseError::Other(format!(
+        "gh pr create failed: {}",
+        stderr
+    )))
 }
 
 /// Verify that `gh` CLI is available in PATH.
