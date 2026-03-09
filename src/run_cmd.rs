@@ -9,7 +9,9 @@ use crate::config::{WorkflowConfig, validate_groups};
 use crate::engine::{execute_steps, print_dry_run, resolve_command_with_model};
 use crate::error::{CruiseError, Result};
 use crate::file_tracker::FileTracker;
-use crate::session::{SessionManager, SessionPhase, current_iso8601, get_cruise_home};
+use crate::session::{
+    SessionManager, SessionPhase, SessionState, current_iso8601, get_cruise_home,
+};
 use crate::variable::VariableStore;
 use crate::worktree;
 
@@ -250,15 +252,25 @@ async fn run_all(args: RunArgs) -> Result<()> {
     let manager = SessionManager::new(get_cruise_home()?);
     let planned_sessions = manager.planned()?;
 
+    let mut results: Vec<SessionState> = Vec::with_capacity(planned_sessions.len());
+
     for session in planned_sessions {
         let session_args = RunArgs {
-            session: Some(session.id),
+            session: Some(session.id.clone()),
             all: false,
             max_retries: args.max_retries,
             rate_limit_retries: args.rate_limit_retries,
             dry_run: args.dry_run,
         };
-        Box::pin(run(session_args)).await?;
+        if let Err(e) = Box::pin(run(session_args)).await {
+            eprintln!("warning: session {} encountered an error: {e}", session.id);
+        }
+        results.push(manager.load(&session.id)?);
+    }
+
+    let summary = format_run_all_summary(&results);
+    if !summary.is_empty() {
+        eprintln!("\n{summary}");
     }
 
     Ok(())
@@ -632,6 +644,58 @@ fn parse_pr_metadata(output: &str) -> (String, String) {
         Some(t) => (t, body.to_string()),
         None => (String::new(), String::new()),
     }
+}
+
+/// Format a summary of all sessions run by `run --all`.
+/// Returns an empty string if `results` is empty.
+fn format_run_all_summary(results: &[SessionState]) -> String {
+    if results.is_empty() {
+        return String::new();
+    }
+
+    const MAX_INPUT_CHARS: usize = 60;
+
+    let mut lines = Vec::with_capacity(results.len() + 1);
+    lines.push(format!(
+        "=== Run All Summary ({} sessions) ===",
+        results.len()
+    ));
+
+    for (i, result) in results.iter().enumerate() {
+        let truncated = crate::display::truncate(&result.input, MAX_INPUT_CHARS);
+
+        let line = match &result.phase {
+            SessionPhase::Completed => {
+                let pr = result
+                    .pr_url
+                    .as_deref()
+                    .map(|u| format!(" {} {u}", style("→").yellow()))
+                    .unwrap_or_default();
+                format!(
+                    "[{}] {} {}{}",
+                    i + 1,
+                    style("✓").green().bold(),
+                    truncated,
+                    pr
+                )
+            }
+            SessionPhase::Failed(err) => {
+                format!(
+                    "[{}] {} {} — Failed: {}",
+                    i + 1,
+                    style("✗").red().bold(),
+                    truncated,
+                    err
+                )
+            }
+            SessionPhase::Planned | SessionPhase::Running => {
+                format!("[{}] ? {}", i + 1, truncated)
+            }
+        };
+        lines.push(line);
+    }
+
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -1060,5 +1124,166 @@ Previously, emojis were used as user icons."#;
 
         // Then: エラーなく Ok(()) が返る
         assert!(result.is_ok(), "expected Ok but got: {:?}", result.err());
+    }
+
+    // -----------------------------------------------------------------------
+    // format_run_all_summary() ユニットテスト
+    // -----------------------------------------------------------------------
+
+    fn make_session(input: &str, phase: SessionPhase, pr_url: Option<&str>) -> SessionState {
+        let mut s = SessionState::new(
+            "20260101000000".to_string(),
+            std::path::PathBuf::from("/tmp"),
+            "test.yaml".to_string(),
+            input.to_string(),
+        );
+        s.phase = phase;
+        s.pr_url = pr_url.map(str::to_string);
+        s
+    }
+
+    #[test]
+    fn test_format_run_all_summary_empty_returns_empty_string() {
+        // Given: 空の結果リスト
+        let results: Vec<SessionState> = vec![];
+
+        // When
+        let summary = format_run_all_summary(&results);
+
+        // Then: 空文字列が返る
+        assert!(
+            summary.is_empty(),
+            "expected empty string, got: {summary:?}"
+        );
+    }
+
+    #[test]
+    fn test_format_run_all_summary_single_completed_with_pr() {
+        // Given: PR URL あり Completed セッション
+        let results = vec![make_session(
+            "add login feature",
+            SessionPhase::Completed,
+            Some("https://github.com/org/repo/pull/42"),
+        )];
+
+        // When
+        let summary = format_run_all_summary(&results);
+
+        // Then: 入力概要・PR URLが含まれる
+        assert!(
+            summary.contains("add login feature"),
+            "summary should contain input: {summary}"
+        );
+        assert!(
+            summary.contains("https://github.com/org/repo/pull/42"),
+            "summary should contain PR URL: {summary}"
+        );
+        assert!(
+            !summary.contains("Failed") && !summary.contains("✗"),
+            "completed session should not show failure: {summary}"
+        );
+    }
+
+    #[test]
+    fn test_format_run_all_summary_single_completed_without_pr() {
+        // Given: PR URL なし Completed セッション
+        let results = vec![make_session(
+            "refactor database layer",
+            SessionPhase::Completed,
+            None,
+        )];
+
+        // When
+        let summary = format_run_all_summary(&results);
+
+        // Then: 入力概要を含み、エラー表示はない
+        assert!(
+            summary.contains("refactor database layer"),
+            "summary should contain input: {summary}"
+        );
+        assert!(
+            !summary.contains("Failed") && !summary.contains("✗"),
+            "completed session should not show failure: {summary}"
+        );
+    }
+
+    #[test]
+    fn test_format_run_all_summary_single_failed_session() {
+        // Given: Failed セッション（エラーメッセージ付き）
+        let results = vec![make_session(
+            "fix login bug",
+            SessionPhase::Failed("CI timeout".to_string()),
+            None,
+        )];
+
+        // When
+        let summary = format_run_all_summary(&results);
+
+        // Then: 入力概要・失敗表示・エラーメッセージを含む
+        assert!(
+            summary.contains("fix login bug"),
+            "summary should contain input: {summary}"
+        );
+        assert!(
+            summary.contains("CI timeout") || summary.contains("Failed") || summary.contains("✗"),
+            "summary should indicate failure: {summary}"
+        );
+    }
+
+    #[test]
+    fn test_format_run_all_summary_mixed_results() {
+        // Given: Completed + Failed の混在
+        let results = vec![
+            make_session(
+                "add auth module",
+                SessionPhase::Completed,
+                Some("https://github.com/org/repo/pull/10"),
+            ),
+            make_session(
+                "fix broken test",
+                SessionPhase::Failed("build error".to_string()),
+                None,
+            ),
+        ];
+
+        // When
+        let summary = format_run_all_summary(&results);
+
+        // Then: 両方のセッションの情報を含む
+        assert!(
+            summary.contains("add auth module"),
+            "summary should contain first input: {summary}"
+        );
+        assert!(
+            summary.contains("https://github.com/org/repo/pull/10"),
+            "summary should contain PR URL: {summary}"
+        );
+        assert!(
+            summary.contains("fix broken test"),
+            "summary should contain second input: {summary}"
+        );
+        assert!(
+            summary.contains("build error") || summary.contains("Failed") || summary.contains("✗"),
+            "summary should indicate failure for second session: {summary}"
+        );
+    }
+
+    #[test]
+    fn test_format_run_all_summary_long_input_is_truncated() {
+        // Given: 非常に長い input を持つセッション
+        let long_input = "a".repeat(200);
+        let results = vec![make_session(&long_input, SessionPhase::Completed, None)];
+
+        // When
+        let summary = format_run_all_summary(&results);
+
+        // Then: サマリーの各行が過度に長くならない（300文字以内）
+        for line in summary.lines() {
+            assert!(
+                line.chars().count() <= 300,
+                "line too long ({} chars): {line}",
+                line.chars().count()
+            );
+        }
     }
 }
