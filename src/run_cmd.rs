@@ -181,7 +181,15 @@ pub async fn run(args: RunArgs) -> Result<()> {
                         }
                     };
                     drop(spinner);
-                    parse_pr_metadata(&llm_output)
+                    let (pr_title, pr_body) = parse_pr_metadata(&llm_output);
+                    if pr_title.is_empty() && !llm_output.trim().is_empty() {
+                        eprintln!(
+                            "{} Failed to parse PR metadata from LLM output (first 500 chars):\n{}",
+                            style("⚠").yellow(),
+                            &llm_output[..llm_output.len().min(500)]
+                        );
+                    }
+                    (pr_title, pr_body)
                 }
             };
 
@@ -666,12 +674,51 @@ fn try_parse_frontmatter(content: &str) -> Option<(String, String)> {
     Some((title, body.to_string()))
 }
 
+/// Try to parse Markdown heading format from `content`:
+///
+/// ```text
+/// # My PR title
+/// PR body here
+/// ```
+///
+/// Only `# ` (h1) is treated as the title line; `## ` (h2) headings may
+/// appear in the body and are left as-is.  Returns `None` if no h1 is found.
+fn try_parse_heading_format(content: &str) -> Option<(String, String)> {
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("# ") {
+            let title = rest.trim().to_string();
+            if title.is_empty() {
+                continue;
+            }
+            // Body: everything after the title line
+            let title_line_len = line.len();
+            let after = match content.find(line) {
+                Some(pos) => {
+                    let end = pos + title_line_len;
+                    let rest = &content[end..];
+                    rest.strip_prefix('\n').unwrap_or(rest)
+                }
+                None => "",
+            };
+            return Some((title, after.to_string()));
+        }
+    }
+    None
+}
+
 /// Parse LLM output into (title, body) from frontmatter format:
 ///
 /// ```text
 /// ---
 /// title: "My PR title"
 /// ---
+/// PR body here
+/// ```
+///
+/// Also accepts Markdown h1 heading format as a fallback:
+///
+/// ```text
+/// # My PR title
 /// PR body here
 /// ```
 ///
@@ -688,6 +735,11 @@ fn parse_pr_metadata(output: &str) -> (String, String) {
     if let Some(pos) = content.find("\n---\n")
         && let Some(result) = try_parse_frontmatter(&content[pos + 1..])
     {
+        return result;
+    }
+
+    // 3. Fallback: Markdown h1 heading format
+    if let Some(result) = try_parse_heading_format(content) {
         return result;
     }
 
@@ -1133,6 +1185,49 @@ Previously, emojis were used as user icons."#;
         // Then: all preamble lines are skipped, frontmatter is parsed
         assert_eq!(title, "refactor: Clean up code");
         assert_eq!(body.trim(), "Refactored the core module.");
+    }
+
+    #[test]
+    fn test_parse_pr_metadata_heading_format() {
+        // Given: LLM output using Markdown h1 heading as title
+        let output = "# feat: Add user icon registration feature\n## Overview\nEnabled users to upload icon images.";
+        // When: parsing PR metadata
+        let (title, body) = parse_pr_metadata(output);
+        // Then: h1 line is used as title, rest as body
+        assert_eq!(title, "feat: Add user icon registration feature");
+        assert_eq!(
+            body.trim(),
+            "## Overview\nEnabled users to upload icon images."
+        );
+    }
+
+    #[test]
+    fn test_parse_pr_metadata_heading_format_in_code_block() {
+        // Given: LLM output wrapped in code block using h1 heading
+        let output = "```md\n# fix: Resolve login bug\nFixed the login issue.\n```";
+        // When: parsing PR metadata
+        let (title, body) = parse_pr_metadata(output);
+        // Then: code block is stripped and h1 heading is used as title
+        assert_eq!(title, "fix: Resolve login bug");
+        assert_eq!(body.trim(), "Fixed the login issue.");
+    }
+
+    #[test]
+    fn test_parse_pr_metadata_empty_input_returns_empty() {
+        // Given: empty input
+        let (title, body) = parse_pr_metadata("");
+        // Then: both are empty
+        assert_eq!(title, "");
+        assert_eq!(body, "");
+    }
+
+    #[test]
+    fn test_parse_pr_metadata_whitespace_only_returns_empty() {
+        // Given: whitespace-only input
+        let (title, body) = parse_pr_metadata("   \n  \n  ");
+        // Then: both are empty
+        assert_eq!(title, "");
+        assert_eq!(body, "");
     }
 
     #[test]
