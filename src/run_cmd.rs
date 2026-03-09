@@ -604,21 +604,15 @@ fn strip_code_block(s: &str) -> &str {
         return trimmed;
     }
 
-    // Slow path: look for a ``` line somewhere in the text (preamble case)
+    // Slow path: look for a ``` line somewhere in the text (preamble case).
+    // Lines from s.lines() never contain '\n', so the ``` marker is always on
+    // its own line; inner content starts on the next line.
     for (line_start, line) in iter_line_offsets(trimmed) {
-        if let Some(after_backticks) = line.strip_prefix("```") {
-            if let Some(newline_pos) = after_backticks.find('\n') {
-                let inner = &after_backticks[newline_pos + 1..];
-                if let Some(close) = inner.rfind("```") {
-                    return inner[..close].trim_end_matches('\n');
-                }
-            } else {
-                // The ``` marker is on its own line; inner starts after the newline
-                let rest = &trimmed[line_start + line.len()..];
-                let rest = rest.strip_prefix('\n').unwrap_or(rest);
-                if let Some(close) = rest.rfind("```") {
-                    return rest[..close].trim_end_matches('\n');
-                }
+        if line.starts_with("```") {
+            let rest = &trimmed[line_start + line.len()..];
+            let rest = rest.strip_prefix('\n').unwrap_or(rest);
+            if let Some(close) = rest.rfind("```") {
+                return rest[..close].trim_end_matches('\n');
             }
             break;
         }
@@ -684,22 +678,16 @@ fn try_parse_frontmatter(content: &str) -> Option<(String, String)> {
 /// Only `# ` (h1) is treated as the title line; `## ` (h2) headings may
 /// appear in the body and are left as-is.  Returns `None` if no h1 is found.
 fn try_parse_heading_format(content: &str) -> Option<(String, String)> {
-    for line in content.lines() {
+    for (line_start, line) in iter_line_offsets(content) {
         if let Some(rest) = line.strip_prefix("# ") {
             let title = rest.trim().to_string();
             if title.is_empty() {
                 continue;
             }
-            // Body: everything after the title line
-            let title_line_len = line.len();
-            let after = match content.find(line) {
-                Some(pos) => {
-                    let end = pos + title_line_len;
-                    let rest = &content[end..];
-                    rest.strip_prefix('\n').unwrap_or(rest)
-                }
-                None => "",
-            };
+            // Body: everything after the title line, using tracked offset to
+            // avoid content.find(line) which would match the first occurrence.
+            let after = &content[line_start + line.len()..];
+            let after = after.strip_prefix('\n').unwrap_or(after);
             return Some((title, after.to_string()));
         }
     }
