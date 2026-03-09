@@ -122,6 +122,7 @@ pub async fn execute_steps(
 
         step_index += 1;
         total_steps = total_steps.max(step_index);
+        let kind = StepKind::try_from(step_config.clone())?;
         eprintln!(
             "\n{} {}",
             style("▶").cyan().bold(),
@@ -137,7 +138,6 @@ pub async fn execute_steps(
         let step_start = Instant::now();
         let step_next = step_config.next.clone();
         let merged_env = resolve_env(&config.env, &step_config.env, vars)?;
-        let kind = StepKind::try_from(step_config.clone())?;
 
         // Pre-execution snapshot so we can detect file changes after this step.
         if step_config
