@@ -78,6 +78,11 @@ pub async fn run() -> Result<()> {
                     // Re-load so subsequent session_actions(&session.phase) uses fresh state.
                     session = manager.load(&session.id)?;
                 }
+                "Reset to Planned" => {
+                    session.reset_to_planned();
+                    manager.save(&session)?;
+                    eprintln!("{} Session {} reset to Planned.", style("✓").green(), session.id);
+                }
                 "Delete" => {
                     manager.delete(&session.id)?;
                     eprintln!("{} Session {} deleted.", style("✓").green(), session.id);
@@ -94,6 +99,7 @@ pub async fn run() -> Result<()> {
 
 /// Returns the action menu items available for the given session phase.
 /// "Run"/"Resume" appears for runnable phases; "Replan" only for Planned.
+/// "Reset to Planned" appears for Running, Failed, and Completed.
 /// "Delete" and "Back" are always present (in that order) at the end.
 fn session_actions(phase: &SessionPhase) -> Vec<&'static str> {
     let mut actions = vec![];
@@ -104,16 +110,21 @@ fn session_actions(phase: &SessionPhase) -> Vec<&'static str> {
         }
         SessionPhase::Running => {
             actions.push("Resume");
+            actions.push("Reset to Planned");
         }
         SessionPhase::Failed(_) => {
             actions.push("Run");
+            actions.push("Reset to Planned");
         }
-        SessionPhase::Completed => {}
+        SessionPhase::Completed => {
+            actions.push("Reset to Planned");
+        }
     }
     actions.push("Delete");
     actions.push("Back");
     actions
 }
+
 
 fn format_session_label(s: &SessionState) -> String {
     let (icon, phase_str) = match &s.phase {
@@ -252,14 +263,14 @@ mod tests {
     }
 
     #[test]
-    fn test_session_actions_completed_has_no_run_no_replan() {
+    fn test_session_actions_completed_has_no_run_no_replan_has_reset() {
         // Given: Completed フェーズ
         let phase = SessionPhase::Completed;
 
         // When
         let actions = session_actions(&phase);
 
-        // Then: "Run" も "Resume" も "Replan" も含まれない
+        // Then: "Run" も "Resume" も "Replan" も含まれないが "Reset to Planned" は含まれる
         assert!(
             !actions.contains(&"Run"),
             "Completed should NOT have Run: {actions:?}"
@@ -271,6 +282,10 @@ mod tests {
         assert!(
             !actions.contains(&"Replan"),
             "Completed should NOT have Replan: {actions:?}"
+        );
+        assert!(
+            actions.contains(&"Reset to Planned"),
+            "Completed should have Reset to Planned: {actions:?}"
         );
         assert!(
             actions.contains(&"Delete"),
@@ -562,6 +577,40 @@ mod tests {
         assert!(
             label.contains('…'),
             "long input should be truncated: {label}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // session_actions — Reset to Planned coverage
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_session_actions_planned_exact() {
+        assert_eq!(
+            session_actions(&SessionPhase::Planned),
+            vec!["Run", "Replan", "Delete", "Back"]
+        );
+    }
+
+    #[test]
+    fn test_session_actions_running_has_reset_to_planned() {
+        let actions = session_actions(&SessionPhase::Running);
+        assert_eq!(actions, vec!["Resume", "Reset to Planned", "Delete", "Back"]);
+    }
+
+    #[test]
+    fn test_session_actions_completed_has_reset_to_planned() {
+        assert_eq!(
+            session_actions(&SessionPhase::Completed),
+            vec!["Reset to Planned", "Delete", "Back"]
+        );
+    }
+
+    #[test]
+    fn test_session_actions_failed_has_run_and_reset_to_planned() {
+        assert_eq!(
+            session_actions(&SessionPhase::Failed("exit 1".to_string())),
+            vec!["Run", "Reset to Planned", "Delete", "Back"]
         );
     }
 }

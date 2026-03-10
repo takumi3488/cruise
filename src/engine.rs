@@ -322,7 +322,7 @@ pub(crate) fn format_duration(d: std::time::Duration) -> String {
     let secs = d.as_secs_f64();
     if secs >= 60.0 {
         let mins = (secs / 60.0) as u64;
-        let remaining = secs - (mins as f64 * 60.0);
+        let remaining = secs % 60.0;
         format!("{}m {:.1}s", mins, remaining)
     } else {
         format!("{:.1}s", secs)
@@ -377,9 +377,12 @@ pub(crate) async fn run_prompt_step(
         let resolved = vars.resolve(inst)?;
         if vars.input_is_empty() {
             let prompt_text = format!("  {}", &resolved);
-            let text = inquire::Text::new(&prompt_text)
-                .prompt()
-                .map_err(|e| CruiseError::Other(format!("input error: {e}")))?;
+            let text = match crate::multiline_input::prompt_multiline(&prompt_text)? {
+                crate::multiline_input::InputResult::Submitted(t) => t,
+                crate::multiline_input::InputResult::Cancelled => {
+                    return Err(CruiseError::Other("input cancelled".to_string()));
+                }
+            };
             vars.set_input(text);
         } else {
             eprintln!("  {}", style(resolved).dim());
@@ -620,6 +623,7 @@ mod tests {
         max_retries: usize,
         rate_limit_retries: usize,
     ) -> Result<ExecutionResult> {
+        let _guard = crate::test_support::lock_process();
         let config = make_config(yaml);
         let mut vars = VariableStore::new(input.to_string());
         let mut tracker = FileTracker::with_root(std::env::current_dir().unwrap());
@@ -1206,6 +1210,50 @@ steps:
         assert_eq!(
             result.steps_failed, 0,
             "stdout and stderr should both be captured correctly"
+        );
+    }
+
+    // ── format_duration ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_format_duration_zero() {
+        assert_eq!(format_duration(std::time::Duration::from_secs(0)), "0.0s");
+    }
+
+    #[test]
+    fn test_format_duration_sub_minute() {
+        assert_eq!(format_duration(std::time::Duration::from_secs(45)), "45.0s");
+    }
+
+    #[test]
+    fn test_format_duration_exactly_one_minute() {
+        assert_eq!(
+            format_duration(std::time::Duration::from_secs(60)),
+            "1m 0.0s"
+        );
+    }
+
+    #[test]
+    fn test_format_duration_over_one_minute() {
+        assert_eq!(
+            format_duration(std::time::Duration::from_secs(90)),
+            "1m 30.0s"
+        );
+    }
+
+    #[test]
+    fn test_format_duration_multiple_minutes() {
+        assert_eq!(
+            format_duration(std::time::Duration::from_secs(125)),
+            "2m 5.0s"
+        );
+    }
+
+    #[test]
+    fn test_format_duration_fractional_seconds() {
+        assert_eq!(
+            format_duration(std::time::Duration::from_millis(5500)),
+            "5.5s"
         );
     }
 }
