@@ -17,7 +17,6 @@ mod step;
 #[cfg(test)]
 mod test_support;
 mod variable;
-mod workflow;
 mod worktree;
 
 #[tokio::main(flavor = "current_thread")]
