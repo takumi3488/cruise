@@ -81,7 +81,11 @@ pub async fn run() -> Result<()> {
                 "Reset to Planned" => {
                     session.reset_to_planned();
                     manager.save(&session)?;
-                    eprintln!("{} Session {} reset to Planned.", style("✓").green(), session.id);
+                    eprintln!(
+                        "{} Session {} reset to Planned.",
+                        style("✓").green(),
+                        session.id
+                    );
                 }
                 "Delete" => {
                     manager.delete(&session.id)?;
@@ -124,7 +128,6 @@ fn session_actions(phase: &SessionPhase) -> Vec<&'static str> {
     actions.push("Back");
     actions
 }
-
 
 fn format_session_label(s: &SessionState) -> String {
     let (icon, phase_str) = match &s.phase {
@@ -595,7 +598,10 @@ mod tests {
     #[test]
     fn test_session_actions_running_has_reset_to_planned() {
         let actions = session_actions(&SessionPhase::Running);
-        assert_eq!(actions, vec!["Resume", "Reset to Planned", "Delete", "Back"]);
+        assert_eq!(
+            actions,
+            vec!["Resume", "Reset to Planned", "Delete", "Back"]
+        );
     }
 
     #[test]
