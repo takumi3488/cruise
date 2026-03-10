@@ -7,6 +7,7 @@ mod engine;
 mod error;
 mod file_tracker;
 mod list_cmd;
+mod multiline_input;
 mod plan_cmd;
 mod resolver;
 mod run_cmd;
@@ -16,6 +17,7 @@ mod step;
 #[cfg(test)]
 mod test_support;
 mod variable;
+mod workflow;
 mod worktree;
 
 #[tokio::main(flavor = "current_thread")]

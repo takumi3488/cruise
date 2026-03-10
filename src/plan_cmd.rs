@@ -7,6 +7,7 @@ use crate::cli::PlanArgs;
 use crate::config::{WorkflowConfig, validate_groups};
 use crate::engine::{resolve_command_with_model, run_prompt_step};
 use crate::error::{CruiseError, Result};
+use crate::multiline_input::{InputResult, prompt_multiline};
 use crate::session::{SessionManager, SessionPhase, SessionState, get_cruise_home};
 use crate::step::PromptStep;
 use crate::variable::VariableStore;
@@ -150,12 +151,23 @@ async fn run_approve_loop(
     rate_limit_retries: usize,
     noninteractive: bool,
 ) -> Result<()> {
+    // Read the plan once up front; re-read only after Fix modifies it.
+    let mut plan_content = match read_plan_non_empty(plan_path) {
+        Ok(content) => content,
+        Err(err) => {
+            eprintln!(
+                "\n{} Generated plan is missing or empty. Session {} discarded.",
+                style("✗").red().bold(),
+                session.id
+            );
+            if let Err(del_err) = manager.delete(&session.id) {
+                eprintln!("warning: failed to clean up session: {del_err}");
+            }
+            return Err(err);
+        }
+    };
+
     loop {
-        // Read and display the current plan.
-        let plan_content = match std::fs::read_to_string(plan_path) {
-            Ok(c) if !c.trim().is_empty() => c,
-            _ => "(plan file is empty or not found)".to_string(),
-        };
         crate::display::print_bordered(&plan_content, Some("plan.md"));
 
         if noninteractive {
@@ -200,23 +212,18 @@ async fn run_approve_loop(
                 return Ok(());
             }
             "Fix" => {
-                let text = match inquire::Text::new("Describe the changes needed:").prompt() {
-                    Ok(t) => t,
-                    Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
-                        continue;
-                    }
-                    Err(e) => return Err(CruiseError::Other(format!("input error: {e}"))),
+                let text = match prompt_multiline("Describe the changes needed:")? {
+                    InputResult::Submitted(t) => t,
+                    InputResult::Cancelled => continue,
                 };
                 vars.set_prev_input(Some(text));
                 run_fix_plan(config, vars, rate_limit_retries).await?;
+                plan_content = read_plan_non_empty(plan_path)?;
             }
             "Ask" => {
-                let text = match inquire::Text::new("Your question:").prompt() {
-                    Ok(t) => t,
-                    Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
-                        continue;
-                    }
-                    Err(e) => return Err(CruiseError::Other(format!("input error: {e}"))),
+                let text = match prompt_multiline("Your question:")? {
+                    InputResult::Submitted(t) => t,
+                    InputResult::Cancelled => continue,
                 };
                 vars.set_prev_input(Some(text));
                 run_ask_plan(config, vars, rate_limit_retries).await?;
@@ -249,21 +256,14 @@ async fn run_fix_plan(
     vars: &mut VariableStore,
     rate_limit_retries: usize,
 ) -> Result<()> {
-    let prompt = vars.resolve(FIX_PLAN_PROMPT_TEMPLATE)?;
-    let fix_model = config.plan_model.clone().or_else(|| config.model.clone());
-    let step = PromptStep {
-        model: fix_model,
-        prompt,
-        instruction: None,
-    };
-    let env = std::collections::HashMap::new();
-    eprintln!(
-        "\n{} {}",
-        style("▶").cyan().bold(),
-        style("[fix-plan] applying fixes...").bold()
-    );
-    run_prompt_step(vars, config, &step, rate_limit_retries, &env).await?;
-    Ok(())
+    run_plan_prompt(
+        config,
+        vars,
+        rate_limit_retries,
+        FIX_PLAN_PROMPT_TEMPLATE,
+        "[fix-plan] applying fixes...",
+    )
+    .await
 }
 
 /// Run the built-in ask-plan prompt.
@@ -272,20 +272,57 @@ async fn run_ask_plan(
     vars: &mut VariableStore,
     rate_limit_retries: usize,
 ) -> Result<()> {
-    let prompt = vars.resolve(ASK_PLAN_PROMPT_TEMPLATE)?;
+    run_plan_prompt(
+        config,
+        vars,
+        rate_limit_retries,
+        ASK_PLAN_PROMPT_TEMPLATE,
+        "[ask-plan] answering question...",
+    )
+    .await
+}
+
+/// Shared implementation for fix-plan and ask-plan: resolve the given
+/// `template`, display `label`, and run it as a prompt step.
+async fn run_plan_prompt(
+    config: &WorkflowConfig,
+    vars: &mut VariableStore,
+    rate_limit_retries: usize,
+    template: &str,
+    label: &str,
+) -> Result<()> {
+    let prompt = vars.resolve(template)?;
     let step = PromptStep {
         model: config.plan_model.clone().or_else(|| config.model.clone()),
         prompt,
         instruction: None,
     };
     let env = std::collections::HashMap::new();
-    eprintln!(
-        "\n{} {}",
-        style("▶").cyan().bold(),
-        style("[ask-plan] answering question...").bold()
-    );
+    eprintln!("\n{} {}", style("▶").cyan().bold(), style(label).bold());
     run_prompt_step(vars, config, &step, rate_limit_retries, &env).await?;
     Ok(())
+}
+
+/// Read `plan.md` and return its content, or error if the file is missing or
+/// contains only whitespace.  This is the canonical validation point that
+/// prevents empty plans from reaching the approve menu.
+fn read_plan_non_empty(plan_path: &std::path::Path) -> Result<String> {
+    let content = std::fs::read_to_string(plan_path).map_err(|e| {
+        CruiseError::Other(format!(
+            "failed to read generated plan {}: {}",
+            plan_path.display(),
+            e
+        ))
+    })?;
+
+    if content.trim().is_empty() {
+        return Err(CruiseError::Other(format!(
+            "generated plan {} is empty",
+            plan_path.display()
+        )));
+    }
+
+    Ok(content)
 }
 
 fn resolve_input<F>(
@@ -320,6 +357,7 @@ fn prompt_for_plan_input() -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn test_resolve_input_from_arg() {
@@ -344,5 +382,68 @@ mod tests {
         // Given: no CLI arg or stdin input is available
         let result = resolve_input(None, None, || Ok("resume in place".to_string()));
         assert_eq!(result.unwrap(), "resume in place");
+    }
+
+    // -----------------------------------------------------------------------
+    // read_plan_non_empty() unit tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_read_plan_non_empty_returns_err_when_file_missing() {
+        // Given: a path that does not exist
+        let tmp = TempDir::new().unwrap();
+        let plan_path = tmp.path().join("plan.md");
+
+        // When
+        let result = read_plan_non_empty(&plan_path);
+
+        // Then: Err is returned
+        assert!(result.is_err(), "expected Err for missing file, got Ok");
+    }
+
+    #[test]
+    fn test_read_plan_non_empty_returns_err_when_file_is_empty() {
+        // Given: plan file exists but is completely empty
+        let tmp = TempDir::new().unwrap();
+        let plan_path = tmp.path().join("plan.md");
+        std::fs::write(&plan_path, "").unwrap();
+
+        // When
+        let result = read_plan_non_empty(&plan_path);
+
+        // Then: Err is returned
+        assert!(result.is_err(), "expected Err for empty file, got Ok");
+    }
+
+    #[test]
+    fn test_read_plan_non_empty_returns_err_when_file_is_whitespace_only() {
+        // Given: plan file contains only whitespace characters
+        let tmp = TempDir::new().unwrap();
+        let plan_path = tmp.path().join("plan.md");
+        std::fs::write(&plan_path, "   \n\t\n  ").unwrap();
+
+        // When
+        let result = read_plan_non_empty(&plan_path);
+
+        // Then: Err is returned (whitespace-only is treated as empty)
+        assert!(
+            result.is_err(),
+            "expected Err for whitespace-only file, got Ok"
+        );
+    }
+
+    #[test]
+    fn test_read_plan_non_empty_returns_content_when_file_has_real_content() {
+        // Given: plan file has meaningful content
+        let tmp = TempDir::new().unwrap();
+        let plan_path = tmp.path().join("plan.md");
+        let content = "# Implementation Plan\n\nStep 1: do something\n";
+        std::fs::write(&plan_path, content).unwrap();
+
+        // When
+        let result = read_plan_non_empty(&plan_path);
+
+        // Then: Ok with the original content is returned
+        assert_eq!(result.unwrap(), content);
     }
 }
