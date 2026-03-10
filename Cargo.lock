@@ -196,6 +196,7 @@ dependencies = [
  "anyhow",
  "clap",
  "console",
+ "crossterm",
  "indexmap",
  "inquire",
  "serde",
@@ -205,6 +206,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "unicode-width",
  "walkdir",
 ]
 

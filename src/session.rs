@@ -28,11 +28,14 @@ impl SessionPhase {
     pub fn is_runnable(&self) -> bool {
         matches!(self, Self::Planned | Self::Running | Self::Failed(_))
     }
+}
 
-    /// Whether this phase represents an actively running session.
-    pub fn is_running(&self) -> bool {
-        matches!(self, Self::Running)
-    }
+/// Where a session should execute its workflow.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorkspaceMode {
+    #[default]
+    Worktree,
+    CurrentBranch,
 }
 
 /// Persisted state for a single session.
@@ -58,6 +61,12 @@ pub struct SessionState {
     pub worktree_path: Option<PathBuf>,
     /// Worktree branch name (set during run phase).
     pub worktree_branch: Option<String>,
+    /// Where this session should run.
+    #[serde(default)]
+    pub workspace_mode: WorkspaceMode,
+    /// Branch captured for current-branch mode.
+    #[serde(default)]
+    pub target_branch: Option<String>,
     /// PR URL created after workflow completion.
     #[serde(default)]
     pub pr_url: Option<String>,
@@ -76,6 +85,8 @@ impl SessionState {
             completed_at: None,
             worktree_path: None,
             worktree_branch: None,
+            workspace_mode: WorkspaceMode::Worktree,
+            target_branch: None,
             pr_url: None,
         }
     }
@@ -83,6 +94,17 @@ impl SessionState {
     /// Absolute path to the plan file for this session.
     pub fn plan_path(&self, sessions_dir: &Path) -> PathBuf {
         sessions_dir.join(&self.id).join("plan.md")
+    }
+
+    /// Resets this session back to `Planned` state so it can be re-executed from scratch.
+    ///
+    /// Clears: `phase`, `current_step`, `completed_at`, `pr_url`.
+    /// Preserves: `worktree_path`, `worktree_branch` (reused on next run).
+    pub fn reset_to_planned(&mut self) {
+        self.phase = SessionPhase::Planned;
+        self.current_step = None;
+        self.completed_at = None;
+        self.pr_url = None;
     }
 
     /// Returns a WorktreeContext if the session has a valid, existing worktree.
@@ -191,6 +213,20 @@ impl SessionManager {
             .into_iter()
             .filter(|s| s.phase == SessionPhase::Planned)
             .collect())
+    }
+
+    /// Load the workflow config for a session.
+    pub fn load_config(&self, id: &str) -> Result<crate::config::WorkflowConfig> {
+        let config_path = self.sessions_dir().join(id).join("config.yaml");
+        let yaml = std::fs::read_to_string(&config_path).map_err(|e| {
+            CruiseError::Other(format!(
+                "failed to read session config {}: {}",
+                config_path.display(),
+                e
+            ))
+        })?;
+        crate::config::WorkflowConfig::from_yaml(&yaml)
+            .map_err(|e| CruiseError::ConfigParseError(e.to_string()))
     }
 
     /// Delete a session directory.
@@ -387,6 +423,7 @@ fn months_in_year(year: u16) -> [u8; 12] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::CruiseError;
     use tempfile::TempDir;
 
     #[test]
@@ -447,6 +484,8 @@ mod tests {
         assert_eq!(loaded.input, "add hello world");
         assert!(matches!(loaded.phase, SessionPhase::Planned));
         assert!(loaded.current_step.is_none());
+        assert_eq!(loaded.workspace_mode, WorkspaceMode::Worktree);
+        assert_eq!(loaded.target_branch, None);
         assert!(loaded.pr_url.is_none());
     }
 
@@ -620,8 +659,30 @@ mod tests {
         std::fs::write(session_dir.join("state.json"), json.to_string()).unwrap();
 
         let loaded = manager.load(&id).unwrap();
+        assert_eq!(loaded.workspace_mode, WorkspaceMode::Worktree);
+        assert_eq!(loaded.target_branch, None);
         assert_eq!(loaded.pr_url, None);
         assert_eq!(loaded.input, "old task");
+    }
+
+    #[test]
+    fn test_session_state_target_branch_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let manager = SessionManager::new(tmp.path().to_path_buf());
+        let id = "20260306180000".to_string();
+        let mut state = SessionState::new(
+            id.clone(),
+            PathBuf::from("/repo"),
+            "cruise.yaml".to_string(),
+            "task".to_string(),
+        );
+        state.workspace_mode = WorkspaceMode::CurrentBranch;
+        state.target_branch = Some("feature/direct-mode".to_string());
+        manager.create(&state).unwrap();
+
+        let loaded = manager.load(&id).unwrap();
+        assert_eq!(loaded.workspace_mode, WorkspaceMode::CurrentBranch);
+        assert_eq!(loaded.target_branch.as_deref(), Some("feature/direct-mode"));
     }
 
     #[test]
@@ -727,5 +788,129 @@ mod tests {
         assert!(ids.contains(&"20260308300000"));
         assert!(ids.contains(&"20260308310000"));
         assert!(ids.contains(&"20260308320000"));
+    }
+
+    #[test]
+    fn test_session_load_config_reads_valid_yaml() {
+        let tmp = TempDir::new().unwrap();
+        let manager = SessionManager::new(tmp.path().to_path_buf());
+        let id = "20260309120000".to_string();
+        let state = SessionState::new(
+            id.clone(),
+            PathBuf::from("/repo"),
+            "cruise.yaml".to_string(),
+            "task".to_string(),
+        );
+        manager.create(&state).unwrap();
+
+        let yaml = "command:\n  - echo\nsteps:\n  test:\n    command: \"true\"\n";
+        std::fs::write(manager.sessions_dir().join(&id).join("config.yaml"), yaml).unwrap();
+
+        let config = manager.load_config(&id).unwrap();
+
+        assert_eq!(config.command, vec!["echo".to_string()]);
+        assert!(config.steps.contains_key("test"));
+    }
+
+    #[test]
+    fn test_session_load_config_invalid_yaml_returns_parse_error() {
+        let tmp = TempDir::new().unwrap();
+        let manager = SessionManager::new(tmp.path().to_path_buf());
+        let id = "20260309120001".to_string();
+        let state = SessionState::new(
+            id.clone(),
+            PathBuf::from("/repo"),
+            "cruise.yaml".to_string(),
+            "task".to_string(),
+        );
+        manager.create(&state).unwrap();
+
+        std::fs::write(
+            manager.sessions_dir().join(&id).join("config.yaml"),
+            "command:\n  - echo\nsteps: [",
+        )
+        .unwrap();
+
+        let err = manager.load_config(&id).unwrap_err();
+
+        assert!(matches!(err, CruiseError::ConfigParseError(_)));
+    }
+
+    // -----------------------------------------------------------------------
+    // SessionState::reset_to_planned
+    // -----------------------------------------------------------------------
+
+    fn make_completed_session() -> SessionState {
+        let mut s = SessionState::new(
+            "20260309100000".to_string(),
+            PathBuf::from("/repo"),
+            "cruise.yaml".to_string(),
+            "some task".to_string(),
+        );
+        s.phase = SessionPhase::Completed;
+        s.current_step = Some("final-step".to_string());
+        s.completed_at = Some("2026-03-09T10:00:00Z".to_string());
+        s.pr_url = Some("https://github.com/owner/repo/pull/42".to_string());
+        s.worktree_path = Some(PathBuf::from("/tmp/worktree"));
+        s.worktree_branch = Some("cruise/20260309100000-some-task".to_string());
+        s
+    }
+
+    #[test]
+    fn test_reset_to_planned_from_completed() {
+        // Given: フル状態の Completed セッション
+        let mut s = make_completed_session();
+        let orig_id = s.id.clone();
+        let orig_input = s.input.clone();
+        let orig_created_at = s.created_at.clone();
+        let orig_base_dir = s.base_dir.clone();
+        let orig_config_source = s.config_source.clone();
+
+        // When
+        s.reset_to_planned();
+
+        // Then: 実行状態フィールドがクリアされ、identity/worktree は保持
+        assert!(matches!(s.phase, SessionPhase::Planned));
+        assert!(s.current_step.is_none());
+        assert!(s.completed_at.is_none());
+        assert!(s.pr_url.is_none());
+        assert_eq!(s.worktree_path, Some(PathBuf::from("/tmp/worktree")));
+        assert_eq!(
+            s.worktree_branch,
+            Some("cruise/20260309100000-some-task".to_string())
+        );
+        assert_eq!(s.id, orig_id);
+        assert_eq!(s.input, orig_input);
+        assert_eq!(s.created_at, orig_created_at);
+        assert_eq!(s.base_dir, orig_base_dir);
+        assert_eq!(s.config_source, orig_config_source);
+    }
+
+    #[test]
+    fn test_reset_to_planned_from_running() {
+        // Given: Running 中のセッション
+        let mut s = SessionState::new(
+            "20260309110000".to_string(),
+            PathBuf::from("/repo"),
+            "cruise.yaml".to_string(),
+            "running task".to_string(),
+        );
+        s.phase = SessionPhase::Running;
+        s.current_step = Some("implement".to_string());
+        s.worktree_path = Some(PathBuf::from("/tmp/wt2"));
+        s.worktree_branch = Some("cruise/20260309110000-running-task".to_string());
+
+        // When
+        s.reset_to_planned();
+
+        // Then: Planned に戻り、実行状態はクリア、worktree は保持
+        assert!(matches!(s.phase, SessionPhase::Planned));
+        assert!(s.current_step.is_none());
+        assert!(s.completed_at.is_none());
+        assert_eq!(s.worktree_path, Some(PathBuf::from("/tmp/wt2")));
+        assert_eq!(
+            s.worktree_branch,
+            Some("cruise/20260309110000-running-task".to_string())
+        );
     }
 }
