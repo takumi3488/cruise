@@ -52,6 +52,16 @@ pub async fn run() -> Result<()> {
             };
 
             match action {
+                "Approve" => {
+                    session.approve();
+                    manager.save(&session)?;
+                    eprintln!(
+                        "{} Session {} approved. Run with: {}",
+                        style("✓").green(),
+                        session.id,
+                        style(format!("cruise run {}", session.id)).cyan()
+                    );
+                }
                 "Run" | "Resume" => {
                     let run_args = crate::cli::RunArgs {
                         session: Some(session.id.clone()),
@@ -126,6 +136,9 @@ pub async fn run() -> Result<()> {
 fn session_actions(session: &SessionState) -> Vec<&'static str> {
     let mut actions = vec![];
     match &session.phase {
+        SessionPhase::AwaitingApproval => {
+            actions.push("Approve");
+        }
         SessionPhase::Planned => {
             actions.push("Run");
             actions.push("Replan");
@@ -165,6 +178,9 @@ fn open_pr_in_browser(pr_url: &str) -> crate::error::Result<()> {
 
 fn format_session_label(s: &SessionState) -> String {
     let (icon, phase_str) = match &s.phase {
+        SessionPhase::AwaitingApproval => {
+            (style("○").magenta(), style("Awaiting Approval").magenta())
+        }
         SessionPhase::Planned => (style("●").cyan(), style("Planned").cyan()),
         SessionPhase::Running => (style("▶").yellow(), style("Running").yellow()),
         SessionPhase::Completed => (style("✓").green(), style("Completed").green()),
@@ -366,6 +382,7 @@ mod tests {
     fn test_session_actions_delete_and_back_always_at_end() {
         // Given: すべてのフェーズで Delete と Back が末尾 2 つに並ぶ
         let sessions = [
+            make_session("20260306143000", "task", SessionPhase::AwaitingApproval),
             make_session("20260306143000", "task", SessionPhase::Planned),
             make_session("20260306143000", "task", SessionPhase::Running),
             make_session("20260306143000", "task", SessionPhase::Completed),
@@ -881,5 +898,95 @@ mod tests {
         let result = open_pr_in_browser("https://github.com/owner/repo/pull/1");
 
         assert!(result.is_err(), "should fail when gh exits non-zero");
+    }
+
+    // -----------------------------------------------------------------------
+    // AwaitingApproval フェーズのアクションとラベル
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_session_actions_awaiting_approval_has_approve() {
+        // Given: AwaitingApproval フェーズ
+        let session = make_session("20260311100000", "task", SessionPhase::AwaitingApproval);
+
+        // When
+        let actions = session_actions(&session);
+
+        // Then: "Approve" アクションを含む
+        assert!(
+            actions.contains(&"Approve"),
+            "AwaitingApproval should have Approve: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn test_session_actions_awaiting_approval_has_no_run_no_resume() {
+        // Given: AwaitingApproval フェーズ
+        let session = make_session("20260311100000", "task", SessionPhase::AwaitingApproval);
+
+        // When
+        let actions = session_actions(&session);
+
+        // Then: 未承認のため "Run" も "Resume" も提供しない
+        assert!(
+            !actions.contains(&"Run"),
+            "AwaitingApproval should NOT have Run: {actions:?}"
+        );
+        assert!(
+            !actions.contains(&"Resume"),
+            "AwaitingApproval should NOT have Resume: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn test_session_actions_awaiting_approval_exact_order() {
+        // Given: AwaitingApproval フェーズ
+        let session = make_session("20260311100000", "task", SessionPhase::AwaitingApproval);
+
+        // When / Then: Approve → Delete → Back の順
+        assert_eq!(session_actions(&session), vec!["Approve", "Delete", "Back"]);
+    }
+
+    #[test]
+    fn test_format_session_label_awaiting_approval_contains_phase_text() {
+        // Given: AwaitingApproval フェーズのセッション
+        let s = make_session(
+            "20260311100000",
+            "pending task",
+            SessionPhase::AwaitingApproval,
+        );
+
+        // When
+        let label = strip(&format_session_label(&s));
+
+        // Then: "Awaiting Approval" テキストとアイコンを含む
+        assert!(
+            label.contains("Awaiting Approval"),
+            "label should contain 'Awaiting Approval': {label}"
+        );
+        assert!(label.contains('○'), "label should contain ○ icon: {label}");
+        assert!(
+            label.contains("pending task"),
+            "label should contain input: {label}"
+        );
+    }
+
+    #[test]
+    fn test_format_session_label_awaiting_approval_not_planned_text() {
+        // Given: AwaitingApproval フェーズのセッション
+        let s = make_session(
+            "20260311100001",
+            "some task",
+            SessionPhase::AwaitingApproval,
+        );
+
+        // When
+        let label = strip(&format_session_label(&s));
+
+        // Then: "Planned" テキストを含まない（フェーズの誤混同を防ぐ）
+        assert!(
+            !label.contains("Planned"),
+            "AwaitingApproval label should NOT contain 'Planned': {label}"
+        );
     }
 }
