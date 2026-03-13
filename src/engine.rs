@@ -46,16 +46,9 @@ pub async fn execute_steps(
     let mut steps_skipped = 0usize;
     let mut steps_failed = 0usize;
 
-    // (A) Pre-calculate step-to-invocation mapping from compiled invocations.
-    let mut step_to_invocation: HashMap<String, String> = HashMap::new();
+    // (A) Use the precomputed step-to-invocation mapping from compile().
+    let step_to_invocation = &compiled.step_to_invocation;
     let mut group_retry_counts: HashMap<String, usize> = HashMap::new();
-    for call_site in compiled.invocations.keys() {
-        for step_name in compiled.steps.keys() {
-            if step_name.starts_with(&format!("{}/", call_site)) {
-                step_to_invocation.insert(step_name.clone(), call_site.clone());
-            }
-        }
-    }
 
     loop {
         let step_config = compiled

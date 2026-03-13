@@ -283,13 +283,7 @@ async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Res
 
                                 // Run after_pr steps if any.
                                 if let Some(first_step) = compiled.after_pr.keys().next() {
-                                    let after_compiled = CompiledWorkflow {
-                                        steps: compiled.after_pr.clone(),
-                                        invocations: compiled.after_pr_invocations.clone(),
-                                        after_pr: indexmap::IndexMap::new(),
-                                        after_pr_invocations: std::collections::HashMap::new(),
-                                        ..compiled.clone()
-                                    };
+                                    let after_compiled = compiled.to_after_pr_compiled();
                                     if let Err(e) = execute_steps(
                                         &after_compiled,
                                         &mut vars,
