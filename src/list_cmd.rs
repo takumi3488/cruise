@@ -9,31 +9,9 @@ pub async fn run() -> Result<()> {
     let manager = SessionManager::new(get_cruise_home()?);
 
     loop {
-        let sessions = manager.list()?;
-
-        if sessions.is_empty() {
-            eprintln!("No sessions found.");
+        let Some(mut session) = pick_session(&manager)? else {
             return Ok(());
-        }
-
-        // Build display labels with color-coded phase.
-        let labels: Vec<String> = sessions.iter().map(format_session_label).collect();
-        let label_refs: Vec<&str> = labels.iter().map(std::string::String::as_str).collect();
-
-        let selected = match inquire::Select::new("Select a session:", label_refs).prompt() {
-            Ok(s) => s,
-            Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
-                return Ok(());
-            }
-            Err(e) => return Err(CruiseError::Other(format!("selection error: {e}"))),
         };
-
-        let Some(idx) = labels.iter().position(|l| l.as_str() == selected) else {
-            return Err(CruiseError::Other(format!(
-                "selected label not found: {selected}"
-            )));
-        };
-        let mut session = sessions[idx].clone();
 
         loop {
             // Show plan.md content.
@@ -126,6 +104,31 @@ pub async fn run() -> Result<()> {
             }
         }
     }
+}
+
+/// Prompts the user to select a session from the list.
+/// Returns `Ok(None)` if the list is empty or the user cancels.
+fn pick_session(manager: &crate::session::SessionManager) -> Result<Option<SessionState>> {
+    let sessions = manager.list()?;
+    if sessions.is_empty() {
+        eprintln!("No sessions found.");
+        return Ok(None);
+    }
+    let labels: Vec<String> = sessions.iter().map(format_session_label).collect();
+    let label_refs: Vec<&str> = labels.iter().map(std::string::String::as_str).collect();
+    let selected = match inquire::Select::new("Select a session:", label_refs).prompt() {
+        Ok(s) => s,
+        Err(InquireError::OperationCanceled | InquireError::OperationInterrupted) => {
+            return Ok(None);
+        }
+        Err(e) => return Err(CruiseError::Other(format!("selection error: {e}"))),
+    };
+    let Some(idx) = labels.iter().position(|l| l.as_str() == selected) else {
+        return Err(CruiseError::Other(format!(
+            "selected label not found: {selected}"
+        )));
+    };
+    Ok(Some(sessions[idx].clone()))
 }
 
 /// Returns the action menu items available for the given session.

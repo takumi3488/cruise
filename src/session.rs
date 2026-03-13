@@ -105,9 +105,9 @@ impl SessionState {
         sessions_dir.join(&self.id).join("plan.md")
     }
 
-    /// Approve the session, transitioning from AwaitingApproval to Planned.
+    /// Approve the session, transitioning from `AwaitingApproval` to Planned.
     ///
-    /// Panics if the session is not in AwaitingApproval phase.
+    /// Panics if the session is not in `AwaitingApproval` phase.
     pub fn approve(&mut self) {
         assert!(
             matches!(self.phase, SessionPhase::AwaitingApproval),
@@ -1211,7 +1211,7 @@ mod tests {
     #[test]
     fn test_pending_excludes_awaiting_approval() {
         // Given: AwaitingApproval / Planned / Running / Failed / Completed の各セッションが存在する
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap_or_else(|e| panic!("{e:?}"));
         let manager = SessionManager::new(tmp.path().to_path_buf());
 
         let awaiting = SessionState::new(
@@ -1221,7 +1221,7 @@ mod tests {
             "unapproved".to_string(),
         );
         // SessionState::new は AwaitingApproval で作成される
-        manager.create(&awaiting).unwrap();
+        manager.create(&awaiting).unwrap_or_else(|e| panic!("{e:?}"));
 
         let mut planned = SessionState::new(
             "20260311200001".to_string(),
@@ -1230,7 +1230,7 @@ mod tests {
             "approved".to_string(),
         );
         planned.phase = SessionPhase::Planned;
-        manager.create(&planned).unwrap();
+        manager.create(&planned).unwrap_or_else(|e| panic!("{e:?}"));
 
         let mut running = SessionState::new(
             "20260311200002".to_string(),
@@ -1239,10 +1239,10 @@ mod tests {
             "running".to_string(),
         );
         running.phase = SessionPhase::Running;
-        manager.create(&running).unwrap();
+        manager.create(&running).unwrap_or_else(|e| panic!("{e:?}"));
 
         // When: pending() を呼ぶ
-        let pending = manager.pending().unwrap();
+        let pending = manager.pending().unwrap_or_else(|e| panic!("{e:?}"));
 
         // Then: AwaitingApproval は含まれない。Planned・Running は含まれる
         let ids: Vec<&str> = pending.iter().map(|s| s.id.as_str()).collect();
@@ -1263,7 +1263,7 @@ mod tests {
     #[test]
     fn test_planned_excludes_awaiting_approval() {
         // Given: AwaitingApproval と Planned の両セッションが存在する
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap_or_else(|e| panic!("{e:?}"));
         let manager = SessionManager::new(tmp.path().to_path_buf());
 
         // AwaitingApproval セッション（SessionState::new のデフォルト）
@@ -1273,7 +1273,7 @@ mod tests {
             "cruise.yaml".to_string(),
             "not yet approved".to_string(),
         );
-        manager.create(&awaiting).unwrap();
+        manager.create(&awaiting).unwrap_or_else(|e| panic!("{e:?}"));
 
         let mut approved = SessionState::new(
             "20260311300001".to_string(),
@@ -1282,10 +1282,10 @@ mod tests {
             "approved task".to_string(),
         );
         approved.phase = SessionPhase::Planned;
-        manager.create(&approved).unwrap();
+        manager.create(&approved).unwrap_or_else(|e| panic!("{e:?}"));
 
         // When: planned() を呼ぶ
-        let result = manager.planned().unwrap();
+        let result = manager.planned().unwrap_or_else(|e| panic!("{e:?}"));
 
         // Then: Planned のみ返され、AwaitingApproval は含まれない
         assert_eq!(result.len(), 1);
@@ -1299,7 +1299,7 @@ mod tests {
     #[test]
     fn test_awaiting_approval_session_roundtrip() {
         // Given: AwaitingApproval フェーズのセッションを永続化する
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap_or_else(|e| panic!("{e:?}"));
         let manager = SessionManager::new(tmp.path().to_path_buf());
         let id = "20260311400000".to_string();
         let state = SessionState::new(
@@ -1308,10 +1308,10 @@ mod tests {
             "cruise.yaml".to_string(),
             "pending approval".to_string(),
         );
-        manager.create(&state).unwrap();
+        manager.create(&state).unwrap_or_else(|e| panic!("{e:?}"));
 
         // When: ロードする
-        let loaded = manager.load(&id).unwrap();
+        let loaded = manager.load(&id).unwrap_or_else(|e| panic!("{e:?}"));
 
         // Then: AwaitingApproval フェーズが正しくデシリアライズされる
         assert!(
