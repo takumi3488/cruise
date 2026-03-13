@@ -135,7 +135,11 @@ fn resolve_if_next(
     if let Some(target) = step_if_file_changed
         && tracker.has_files_changed(current_step)?
     {
-        eprintln!("  {} files changed, jumping to: {}", style("↻").cyan(), target);
+        eprintln!(
+            "  {} files changed, jumping to: {}",
+            style("↻").cyan(),
+            target
+        );
         return Ok(Some(target.to_string()));
     }
     // Group file-changed check.
@@ -148,8 +152,12 @@ fn resolve_if_next(
         return Ok(None);
     }
     let Some(invoc) = meta else { return Ok(None) };
-    let Some(ref if_cond) = invoc.if_condition else { return Ok(None) };
-    let Some(ref target) = if_cond.file_changed else { return Ok(None) };
+    let Some(ref if_cond) = invoc.if_condition else {
+        return Ok(None);
+    };
+    let Some(ref target) = if_cond.file_changed else {
+        return Ok(None);
+    };
     if tracker.has_files_changed(&group_snapshot_key(call_site))? {
         *group_retry_counts.entry(call_site.to_string()).or_insert(0) += 1;
         eprintln!(
@@ -184,8 +192,11 @@ pub async fn execute_steps(
         step_to_invocation: &step_to_invocation,
         group_retry_counts: HashMap::new(),
         counters: LoopCounters {
-            run: 0, skipped: 0, failed: 0,
-            step_index: 0, total_steps: compiled.steps.len(),
+            run: 0,
+            skipped: 0,
+            failed: 0,
+            step_index: 0,
+            total_steps: compiled.steps.len(),
         },
         max_retries,
         rate_limit_retries,
@@ -193,9 +204,15 @@ pub async fn execute_steps(
     };
 
     loop {
-        let outcome =
-            step_loop_iteration(compiled, vars, tracker, &current_step, &mut state, on_step_start)
-                .await?;
+        let outcome = step_loop_iteration(
+            compiled,
+            vars,
+            tracker,
+            &current_step,
+            &mut state,
+            on_step_start,
+        )
+        .await?;
         match outcome {
             StepOutcome::Next(next) => current_step = next,
             StepOutcome::Done => break,
@@ -207,10 +224,16 @@ pub async fn execute_steps(
     eprintln!(
         "\n{} ({} run, {} skipped, {} failed) [{}]",
         style("✓ workflow complete").green().bold(),
-        c.run, c.skipped, c.failed,
+        c.run,
+        c.skipped,
+        c.failed,
         format_duration(total_elapsed)
     );
-    Ok(ExecutionResult { run: c.run, skipped: c.skipped, failed: c.failed })
+    Ok(ExecutionResult {
+        run: c.run,
+        skipped: c.skipped,
+        failed: c.failed,
+    })
 }
 
 /// Shared mutable state for the execution loop.
@@ -236,11 +259,17 @@ async fn step_loop_iteration(
         .steps
         .get(current_step)
         .ok_or_else(|| CruiseError::StepNotFound(current_step.to_string()))?;
-    let step_call_site =
-        state.step_to_invocation.get(current_step).map(std::string::String::as_str);
+    let step_call_site = state
+        .step_to_invocation
+        .get(current_step)
+        .map(std::string::String::as_str);
 
     if let Some(outcome) = check_group_retry_skip(
-        compiled, current_step, step_call_site, &state.group_retry_counts, &mut state.counters,
+        compiled,
+        current_step,
+        step_call_site,
+        &state.group_retry_counts,
+        &mut state.counters,
     ) {
         return Ok(outcome);
     }
@@ -258,7 +287,11 @@ async fn step_loop_iteration(
     eprintln!(
         "\n{} {}",
         style("▶").cyan().bold(),
-        style(format!("[{}/{}] {}", state.counters.step_index, state.counters.total_steps, current_step)).bold()
+        style(format!(
+            "[{}/{}] {}",
+            state.counters.step_index, state.counters.total_steps, current_step
+        ))
+        .bold()
     );
     on_step_start(current_step)?;
 
@@ -266,16 +299,29 @@ async fn step_loop_iteration(
     let step_next = step_config.next.clone();
     let merged_env = resolve_env(&compiled.env, &step_config.env, vars)?;
     let kind = StepKind::try_from(step_config.clone())?;
-    let step_if_file_changed = step_config.if_condition.as_ref().and_then(|c| c.file_changed.as_deref());
+    let step_if_file_changed = step_config
+        .if_condition
+        .as_ref()
+        .and_then(|c| c.file_changed.as_deref());
 
     let nochange_key = take_pre_snapshots(
-        compiled, tracker, current_step, step_call_site,
-        step_if_file_changed.is_some(), step_config.fail_if_no_file_changes,
+        compiled,
+        tracker,
+        current_step,
+        step_call_site,
+        step_if_file_changed.is_some(),
+        step_config.fail_if_no_file_changes,
     )?;
     let option_next = execute_step_kind(
-        &kind, vars, compiled, state.rate_limit_retries, &merged_env,
-        step_start, &mut state.counters.failed,
-    ).await?;
+        &kind,
+        vars,
+        compiled,
+        state.rate_limit_retries,
+        &merged_env,
+        step_start,
+        &mut state.counters.failed,
+    )
+    .await?;
     state.counters.run += 1;
 
     if let Some(ref key) = nochange_key
@@ -285,8 +331,12 @@ async fn step_loop_iteration(
     }
 
     let if_next = resolve_if_next(
-        compiled, tracker, current_step, step_call_site,
-        step_if_file_changed, &mut state.group_retry_counts,
+        compiled,
+        tracker,
+        current_step,
+        step_call_site,
+        step_if_file_changed,
+        &mut state.group_retry_counts,
     )?;
     let effective_next = if_next.or(option_next).or(step_next);
     let next_step = get_next_step(&compiled.steps, current_step, effective_next.as_deref());
@@ -297,7 +347,9 @@ async fn step_loop_iteration(
         *count += 1;
         if *count > state.max_retries {
             return Err(CruiseError::LoopProtection(
-                current_step.to_string(), next.clone(), state.max_retries,
+                current_step.to_string(),
+                next.clone(),
+                state.max_retries,
             ));
         }
     }
@@ -327,8 +379,7 @@ async fn execute_step_kind(
             Ok(None)
         }
         StepKind::Command(step) => {
-            let success =
-                run_command_step(vars, step, rate_limit_retries, merged_env).await?;
+            let success = run_command_step(vars, step, rate_limit_retries, merged_env).await?;
             let elapsed = step_start.elapsed();
             if !success {
                 *failed += 1;
@@ -601,7 +652,11 @@ pub(crate) fn print_dry_run(config: &WorkflowConfig, from: Option<&str>) {
 
     if !config.groups.is_empty() {
         println!("\ngroups:");
-        let mut group_names: Vec<&str> = config.groups.keys().map(std::string::String::as_str).collect();
+        let mut group_names: Vec<&str> = config
+            .groups
+            .keys()
+            .map(std::string::String::as_str)
+            .collect();
         group_names.sort_unstable();
         for name in group_names {
             let g = &config.groups[name];
@@ -702,7 +757,12 @@ mod tests {
         let compiled = crate::workflow::compile(config).unwrap_or_else(|e| panic!("{e:?}"));
         let mut vars = VariableStore::new(input.to_string());
         let mut tracker = FileTracker::with_root(tracker_root);
-        let first_step = compiled.steps.keys().next().unwrap_or_else(|| panic!("unexpected None")).clone();
+        let first_step = compiled
+            .steps
+            .keys()
+            .next()
+            .unwrap_or_else(|| panic!("unexpected None"))
+            .clone();
         let step = start_step.unwrap_or(&first_step).to_string();
         execute_steps(
             &compiled,
@@ -998,10 +1058,7 @@ steps:
       CRUISE_OVERRIDE_ENV: step_value
 "#;
         let result = run_config(yaml, "", None).await;
-        assert!(
-            result.is_ok(),
-            "step env override did not work: {result:?}"
-        );
+        assert!(result.is_ok(), "step env override did not work: {result:?}");
     }
 
     #[tokio::test]
@@ -1015,10 +1072,7 @@ steps:
     command: 'test "$CRUISE_INPUT_ENV" = myinput'
 "#;
         let result = run_config(yaml, "myinput", None).await;
-        assert!(
-            result.is_ok(),
-            "env variable resolution failed: {result:?}"
-        );
+        assert!(result.is_ok(), "env variable resolution failed: {result:?}");
     }
 
     #[tokio::test]
@@ -1264,7 +1318,8 @@ steps:
         let config = make_config(yaml);
         let compiled = crate::workflow::compile(config).unwrap_or_else(|e| panic!("{e:?}"));
         let mut vars = VariableStore::new(String::new());
-        let mut tracker = FileTracker::with_root(std::env::current_dir().unwrap_or_else(|e| panic!("{e:?}")));
+        let mut tracker =
+            FileTracker::with_root(std::env::current_dir().unwrap_or_else(|e| panic!("{e:?}")));
         let mut called_steps: Vec<String> = Vec::new();
         let called_ref = std::cell::RefCell::new(&mut called_steps);
 

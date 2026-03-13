@@ -31,13 +31,19 @@ mod tests {
 
     #[test]
     fn test_should_skip_false() -> crate::error::Result<()> {
-        assert!(!should_skip(Some(&SkipCondition::Static(false)), &empty_vars())?);
+        assert!(!should_skip(
+            Some(&SkipCondition::Static(false)),
+            &empty_vars()
+        )?);
         Ok(())
     }
 
     #[test]
     fn test_should_skip_true() -> crate::error::Result<()> {
-        assert!(should_skip(Some(&SkipCondition::Static(true)), &empty_vars())?);
+        assert!(should_skip(
+            Some(&SkipCondition::Static(true)),
+            &empty_vars()
+        )?);
         Ok(())
     }
 
@@ -45,12 +51,10 @@ mod tests {
     fn test_should_skip_variable_true() -> crate::error::Result<()> {
         let mut vars = VariableStore::new(String::new());
         vars.set_prev_success(Some(true));
-        assert!(
-            should_skip(
-                Some(&SkipCondition::Variable("prev.success".to_string())),
-                &vars
-            )?
-        );
+        assert!(should_skip(
+            Some(&SkipCondition::Variable("prev.success".to_string())),
+            &vars
+        )?);
         Ok(())
     }
 
@@ -58,12 +62,10 @@ mod tests {
     fn test_should_skip_variable_false() -> crate::error::Result<()> {
         let mut vars = VariableStore::new(String::new());
         vars.set_prev_success(Some(false));
-        assert!(
-            !should_skip(
-                Some(&SkipCondition::Variable("prev.success".to_string())),
-                &vars
-            )?
-        );
+        assert!(!should_skip(
+            Some(&SkipCondition::Variable("prev.success".to_string())),
+            &vars
+        )?);
         Ok(())
     }
 

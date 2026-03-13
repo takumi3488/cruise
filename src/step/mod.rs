@@ -275,7 +275,8 @@ mod tests {
             }]),
             ..Default::default()
         };
-        let err = StepKind::try_from(config).map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = StepKind::try_from(config)
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         assert!(matches!(err, CruiseError::InvalidStepConfig(_)));
     }
 
@@ -286,7 +287,8 @@ mod tests {
             command: Some(StringOrVec::Multiple(vec![])),
             ..Default::default()
         };
-        let err = StepKind::try_from(config).map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = StepKind::try_from(config)
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         assert!(matches!(err, CruiseError::InvalidStepConfig(_)));
     }
 
@@ -300,14 +302,16 @@ mod tests {
             }]),
             ..Default::default()
         };
-        let err = StepKind::try_from(config).map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = StepKind::try_from(config)
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         assert!(matches!(err, CruiseError::InvalidStepConfig(_)));
     }
 
     #[test]
     fn test_invalid_step_conversion() {
         let config = StepConfig::default();
-        let err = StepKind::try_from(config).map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = StepKind::try_from(config)
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         assert!(matches!(err, CruiseError::InvalidStepConfig(_)));
     }
 

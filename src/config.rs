@@ -349,7 +349,11 @@ steps:
     #[test]
     fn test_step_order_preserved() {
         let config = WorkflowConfig::from_yaml(SAMPLE_YAML).unwrap_or_else(|e| panic!("{e:?}"));
-        let step_names: Vec<&str> = config.steps.keys().map(std::string::String::as_str).collect();
+        let step_names: Vec<&str> = config
+            .steps
+            .keys()
+            .map(std::string::String::as_str)
+            .collect();
         assert_eq!(
             step_names,
             vec![
@@ -365,7 +369,10 @@ steps:
     #[test]
     fn test_prompt_step_fields() {
         let config = WorkflowConfig::from_yaml(SAMPLE_YAML).unwrap_or_else(|e| panic!("{e:?}"));
-        let planning = config.steps.get("planning").unwrap_or_else(|| panic!("unexpected None"));
+        let planning = config
+            .steps
+            .get("planning")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(planning.model, Some("claude-opus-4-5".to_string()));
         assert_eq!(
             planning.instruction,
@@ -377,8 +384,15 @@ steps:
     #[test]
     fn test_command_step_single() {
         let config = WorkflowConfig::from_yaml(SAMPLE_YAML).unwrap_or_else(|e| panic!("{e:?}"));
-        let run_tests = config.steps.get("run_tests").unwrap_or_else(|| panic!("unexpected None"));
-        match run_tests.command.as_ref().unwrap_or_else(|| panic!("unexpected None")) {
+        let run_tests = config
+            .steps
+            .get("run_tests")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        match run_tests
+            .command
+            .as_ref()
+            .unwrap_or_else(|| panic!("unexpected None"))
+        {
             StringOrVec::Single(s) => assert_eq!(s, "cargo test"),
             StringOrVec::Multiple(_) => panic!("Expected Single command"),
         }
@@ -395,8 +409,15 @@ steps:
       - cargo test
 ";
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
-        let step = config.steps.get("multi").unwrap_or_else(|| panic!("unexpected None"));
-        match step.command.as_ref().unwrap_or_else(|| panic!("unexpected None")) {
+        let step = config
+            .steps
+            .get("multi")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        match step
+            .command
+            .as_ref()
+            .unwrap_or_else(|| panic!("unexpected None"))
+        {
             StringOrVec::Multiple(cmds) => {
                 assert_eq!(cmds.len(), 2);
                 assert_eq!(cmds[0], "cargo fmt");
@@ -409,8 +430,14 @@ steps:
     #[test]
     fn test_option_step_fields() {
         let config = WorkflowConfig::from_yaml(SAMPLE_YAML).unwrap_or_else(|e| panic!("{e:?}"));
-        let review = config.steps.get("review_plan").unwrap_or_else(|| panic!("unexpected None"));
-        let options = review.option.as_ref().unwrap_or_else(|| panic!("unexpected None"));
+        let review = config
+            .steps
+            .get("review_plan")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        let options = review
+            .option
+            .as_ref()
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(options.len(), 3);
         assert_eq!(
             options[0].selector,
@@ -428,8 +455,14 @@ steps:
     #[test]
     fn test_if_condition_fields() {
         let config = WorkflowConfig::from_yaml(SAMPLE_YAML).unwrap_or_else(|e| panic!("{e:?}"));
-        let commit = config.steps.get("commit").unwrap_or_else(|| panic!("unexpected None"));
-        let if_cond = commit.if_condition.as_ref().unwrap_or_else(|| panic!("unexpected None"));
+        let commit = config
+            .steps
+            .get("commit")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        let if_cond = commit
+            .if_condition
+            .as_ref()
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(if_cond.file_changed, Some("implement".to_string()));
     }
 
@@ -443,7 +476,10 @@ steps:
     skip: true
 ";
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
-        let step = config.steps.get("optional_step").unwrap_or_else(|| panic!("unexpected None"));
+        let step = config
+            .steps
+            .get("optional_step")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert!(matches!(step.skip, Some(SkipCondition::Static(true))));
     }
 
@@ -457,7 +493,10 @@ steps:
     skip: prev.success
 ";
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
-        let step = config.steps.get("conditional_skip").unwrap_or_else(|| panic!("unexpected None"));
+        let step = config
+            .steps
+            .get("conditional_skip")
+            .unwrap_or_else(|| panic!("unexpected None"));
         match &step.skip {
             Some(SkipCondition::Variable(name)) => assert_eq!(name, "prev.success"),
             _ => panic!("Expected Variable skip condition"),
@@ -497,7 +536,10 @@ steps:
       RUST_LOG: debug
 ";
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
-        let build = config.steps.get("build").unwrap_or_else(|| panic!("unexpected None"));
+        let build = config
+            .steps
+            .get("build")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(build.env.get("RUST_LOG"), Some(&"debug".to_string()));
     }
 
@@ -511,7 +553,10 @@ steps:
 ";
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         assert!(config.env.is_empty());
-        let step = config.steps.get("step1").unwrap_or_else(|| panic!("unexpected None"));
+        let step = config
+            .steps
+            .get("step1")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert!(step.env.is_empty());
     }
 
@@ -530,7 +575,8 @@ steps:
     #[test]
     fn test_parse_cruise_yaml() {
         let yaml = include_str!("../cruise.yaml");
-        let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("failed to parse cruise.yaml: {e:?}"));
+        let config = WorkflowConfig::from_yaml(yaml)
+            .unwrap_or_else(|e| panic!("failed to parse cruise.yaml: {e:?}"));
         assert_eq!(config.command, vec!["claude", "--model", "{model}", "-p"]);
         assert_eq!(config.model, Some("sonnet".to_string()));
         assert!(!config.steps.is_empty(), "steps is empty");
@@ -552,16 +598,35 @@ steps:
         assert_eq!(config.pr_language, DEFAULT_PR_LANGUAGE);
         assert_eq!(config.steps.len(), 2);
 
-        let write_test = config.steps.get("write-tests").unwrap_or_else(|| panic!("unexpected None"));
-        assert!(write_test.prompt.as_deref().unwrap_or_else(|| panic!("unexpected None")).contains("{plan}"));
+        let write_test = config
+            .steps
+            .get("write-tests")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        assert!(
+            write_test
+                .prompt
+                .as_deref()
+                .unwrap_or_else(|| panic!("unexpected None"))
+                .contains("{plan}")
+        );
 
-        let implement = config.steps.get("implement").unwrap_or_else(|| panic!("unexpected None"));
-        assert!(implement.prompt.as_deref().unwrap_or_else(|| panic!("unexpected None")).contains("{plan}"));
+        let implement = config
+            .steps
+            .get("implement")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        assert!(
+            implement
+                .prompt
+                .as_deref()
+                .unwrap_or_else(|| panic!("unexpected None"))
+                .contains("{plan}")
+        );
     }
 
     #[test]
     fn test_default_builtin_serializes_pr_language() {
-        let yaml = serde_yaml::to_string(&WorkflowConfig::default_builtin()).unwrap_or_else(|e| panic!("{e:?}"));
+        let yaml = serde_yaml::to_string(&WorkflowConfig::default_builtin())
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(yaml.contains("pr_language: English"));
     }
 
@@ -612,10 +677,17 @@ steps:
         assert_eq!(review.max_retries, Some(3));
         assert!(review.if_condition.is_some());
         assert_eq!(
-            review.if_condition.as_ref().unwrap_or_else(|| panic!("unexpected None")).file_changed,
+            review
+                .if_condition
+                .as_ref()
+                .unwrap_or_else(|| panic!("unexpected None"))
+                .file_changed,
             Some("test".to_string())
         );
-        let simplify = config.steps.get("simplify").unwrap_or_else(|| panic!("unexpected None"));
+        let simplify = config
+            .steps
+            .get("simplify")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(simplify.group, Some("review".to_string()));
     }
 
@@ -653,7 +725,12 @@ steps:
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         let result = validate_groups(&config);
         assert!(result.is_err());
-        assert!(result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string().contains("undefined group"));
+        assert!(
+            result
+                .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+                .to_string()
+                .contains("undefined group")
+        );
     }
 
     #[test]
@@ -700,7 +777,12 @@ steps:
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         let result = validate_groups(&config);
         assert!(result.is_err());
-        assert!(result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string().contains("individual 'if'"));
+        assert!(
+            result
+                .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+                .to_string()
+                .contains("individual 'if'")
+        );
     }
 
     #[test]
@@ -723,7 +805,11 @@ after-pr:
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         // Then: after_pr has 2 steps in order
         assert_eq!(config.after_pr.len(), 2);
-        let keys: Vec<&str> = config.after_pr.keys().map(std::string::String::as_str).collect();
+        let keys: Vec<&str> = config
+            .after_pr
+            .keys()
+            .map(std::string::String::as_str)
+            .collect();
         assert_eq!(keys, vec!["notify", "label"]);
     }
 
@@ -757,8 +843,15 @@ after-pr:
         // When: parsed
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         // Then: after_pr step has the command field set
-        let notify = config.after_pr.get("notify").unwrap_or_else(|| panic!("unexpected None"));
-        match notify.command.as_ref().unwrap_or_else(|| panic!("unexpected None")) {
+        let notify = config
+            .after_pr
+            .get("notify")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        match notify
+            .command
+            .as_ref()
+            .unwrap_or_else(|| panic!("unexpected None"))
+        {
             StringOrVec::Single(s) => assert_eq!(s, "echo done"),
             StringOrVec::Multiple(_) => panic!("Expected Single command"),
         }
@@ -776,7 +869,10 @@ steps:
         // When: parsed
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         // Then: the field defaults to false
-        let implement = config.steps.get("implement").unwrap_or_else(|| panic!("unexpected None"));
+        let implement = config
+            .steps
+            .get("implement")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert!(!implement.fail_if_no_file_changes);
     }
 
@@ -793,7 +889,10 @@ steps:
         // When: parsed
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         // Then: the field is true
-        let implement = config.steps.get("implement").unwrap_or_else(|| panic!("unexpected None"));
+        let implement = config
+            .steps
+            .get("implement")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert!(implement.fail_if_no_file_changes);
     }
 
@@ -816,7 +915,10 @@ after-pr:
         // Then: returns an error because after-pr + fail-if-no-file-changes is unsupported
         assert!(result.is_err());
         assert!(
-            result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string().contains("after-pr"),
+            result
+                .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+                .to_string()
+                .contains("after-pr"),
             "error message should mention after-pr"
         );
     }
@@ -867,7 +969,11 @@ steps:
         let review = &config.groups["review"];
         assert_eq!(review.max_retries, Some(3));
         assert_eq!(review.steps.len(), 2);
-        let step_names: Vec<&str> = review.steps.keys().map(std::string::String::as_str).collect();
+        let step_names: Vec<&str> = review
+            .steps
+            .keys()
+            .map(std::string::String::as_str)
+            .collect();
         assert_eq!(step_names, vec!["simplify", "coderabbit"]);
     }
 
@@ -890,7 +996,10 @@ steps:
         // When: parsed
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         // Then: group call step only has group set
-        let review_pass = config.steps.get("review-pass").unwrap_or_else(|| panic!("unexpected None"));
+        let review_pass = config
+            .steps
+            .get("review-pass")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(review_pass.group, Some("review".to_string()));
         assert!(review_pass.prompt.is_none());
         assert!(review_pass.command.is_none());
@@ -928,7 +1037,11 @@ steps:
             Some("review".to_string())
         );
         // And: step order in top-level steps is preserved
-        let keys: Vec<&str> = config.steps.keys().map(std::string::String::as_str).collect();
+        let keys: Vec<&str> = config
+            .steps
+            .keys()
+            .map(std::string::String::as_str)
+            .collect();
         assert_eq!(
             keys,
             vec!["test1", "review-after-lib", "test2", "review-after-doc"]

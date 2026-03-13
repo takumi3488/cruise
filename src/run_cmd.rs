@@ -94,7 +94,9 @@ pub async fn run(args: RunArgs) -> Result<()> {
 async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Result<()> {
     let _current_dir_guard = CurrentDirGuard::capture()?;
     let manager = SessionManager::new(get_cruise_home()?);
-    let session_id = args.session.map_or_else(|| select_pending_session(&manager), Ok)?;
+    let session_id = args
+        .session
+        .map_or_else(|| select_pending_session(&manager), Ok)?;
     let mut session = manager.load(&session_id)?;
     let config = manager.load_config(&session_id)?;
     validate_groups(&config)?;
@@ -115,9 +117,14 @@ async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Res
         ensure_gh_available()?;
     }
     let start_step = session.current_step.clone().map_or_else(
-        || compiled.steps.keys().next()
-            .ok_or_else(|| CruiseError::Other("config has no steps".to_string()))
-            .cloned(),
+        || {
+            compiled
+                .steps
+                .keys()
+                .next()
+                .ok_or_else(|| CruiseError::Other("config has no steps".to_string()))
+                .cloned()
+        },
         Ok,
     )?;
     log_resume_message(&session);
@@ -135,10 +142,19 @@ async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Res
     let mut tracker = FileTracker::with_root(execution_workspace.path().to_path_buf());
     let session_cell = RefCell::new(&mut session);
     let exec_result = execute_steps(
-        &compiled, &mut vars, &mut tracker, &start_step,
-        args.max_retries, args.rate_limit_retries,
-        &|step| { let mut s = session_cell.borrow_mut(); s.current_step = Some(step.to_string()); manager.save(&s) },
-    ).await;
+        &compiled,
+        &mut vars,
+        &mut tracker,
+        &start_step,
+        args.max_retries,
+        args.rate_limit_retries,
+        &|step| {
+            let mut s = session_cell.borrow_mut();
+            s.current_step = Some(step.to_string());
+            manager.save(&s)
+        },
+    )
+    .await;
     let session = session_cell.into_inner();
 
     let overall_result = match exec_result {
@@ -147,8 +163,16 @@ async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Res
             match &execution_workspace {
                 ExecutionWorkspace::CurrentBranch { .. } => Ok(()),
                 ExecutionWorkspace::Worktree { ctx, .. } => {
-                    handle_worktree_pr(ctx, &compiled, &mut vars, &mut tracker, session,
-                        args.rate_limit_retries, args.max_retries).await
+                    handle_worktree_pr(
+                        ctx,
+                        &compiled,
+                        &mut vars,
+                        &mut tracker,
+                        session,
+                        args.rate_limit_retries,
+                        args.max_retries,
+                    )
+                    .await
                 }
             }
         }
@@ -166,11 +190,17 @@ async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Res
 
 /// Log a resume message if the session is being restarted.
 fn log_resume_message(session: &SessionState) {
-    let Some(ref step) = session.current_step else { return };
+    let Some(ref step) = session.current_step else {
+        return;
+    };
     match &session.phase {
         SessionPhase::Running => eprintln!("{} Resuming from step: {}", style("↺").cyan(), step),
         SessionPhase::Failed(_) => {
-            eprintln!("{} Retrying from failed step: {}", style("↺").yellow(), step);
+            eprintln!(
+                "{} Retrying from failed step: {}",
+                style("↺").yellow(),
+                step
+            );
         }
         _ => {}
     }
@@ -181,7 +211,12 @@ fn update_session_workspace(session: &mut SessionState, ws: &ExecutionWorkspace)
     match ws {
         ExecutionWorkspace::Worktree { ctx, reused } => {
             let suffix = if *reused { " (reused)" } else { "" };
-            eprintln!("{} worktree: {}{}", style("→").cyan(), ctx.path.display(), suffix);
+            eprintln!(
+                "{} worktree: {}{}",
+                style("→").cyan(),
+                ctx.path.display(),
+                suffix
+            );
             session.worktree_path = Some(ctx.path.clone());
             session.worktree_branch = Some(ctx.branch.clone());
         }
@@ -251,7 +286,10 @@ async fn generate_pr_description(
     let pr_model = compiled.model.as_deref();
     let has_placeholder = compiled.command.iter().any(|s| s.contains("{model}"));
     let (resolved_command, model_arg) = if has_placeholder {
-        (resolve_command_with_model(&compiled.command, pr_model), None)
+        (
+            resolve_command_with_model(&compiled.command, pr_model),
+            None,
+        )
     } else {
         (compiled.command.clone(), pr_model.map(str::to_string))
     };
@@ -727,7 +765,9 @@ fn select_pending_session(manager: &SessionManager) -> Result<String> {
         Err(e) => return Err(CruiseError::Other(format!("selection error: {e}"))),
     };
 
-    let idx = labels.iter().position(|l| l.as_str() == selected)
+    let idx = labels
+        .iter()
+        .position(|l| l.as_str() == selected)
         .ok_or_else(|| CruiseError::Other(format!("selected session not found: {selected}")))?;
     Ok(pending[idx].id.clone())
 }
@@ -1007,7 +1047,15 @@ mod tests {
         // Set up a local bare repo as "origin" so git push works in tests
         let bare = tmp.path().join("origin.git");
         run_git_ok(tmp.path(), &["init", "--bare", "origin.git"]);
-        run_git_ok(&repo, &["remote", "add", "origin", bare.to_str().unwrap_or_else(|| panic!("unexpected None"))]);
+        run_git_ok(
+            &repo,
+            &[
+                "remote",
+                "add",
+                "origin",
+                bare.to_str().unwrap_or_else(|| panic!("unexpected None")),
+            ],
+        );
 
         let worktrees_dir = tmp.path().join("worktrees");
         let (ctx, reused) =
@@ -1031,7 +1079,9 @@ mod tests {
                 url
             );
             fs::write(&script_path, script).unwrap_or_else(|e| panic!("{e:?}"));
-            let mut perms = fs::metadata(&script_path).unwrap_or_else(|e| panic!("{e:?}")).permissions();
+            let mut perms = fs::metadata(&script_path)
+                .unwrap_or_else(|e| panic!("{e:?}"))
+                .permissions();
             perms.set_mode(0o755);
             fs::set_permissions(&script_path, perms).unwrap_or_else(|e| panic!("{e:?}"));
         }
@@ -1062,7 +1112,9 @@ mod tests {
                 url
             );
             fs::write(&script_path, script).unwrap_or_else(|e| panic!("{e:?}"));
-            let mut perms = fs::metadata(&script_path).unwrap_or_else(|e| panic!("{e:?}")).permissions();
+            let mut perms = fs::metadata(&script_path)
+                .unwrap_or_else(|e| panic!("{e:?}"))
+                .permissions();
             perms.set_mode(0o755);
             fs::set_permissions(&script_path, perms).unwrap_or_else(|e| panic!("{e:?}"));
         }
@@ -1150,7 +1202,15 @@ mod tests {
 
         let bare = tmp.path().join("origin.git");
         run_git_ok(tmp.path(), &["init", "--bare", "origin.git"]);
-        run_git_ok(&repo, &["remote", "add", "origin", bare.to_str().unwrap_or_else(|| panic!("unexpected None"))]);
+        run_git_ok(
+            &repo,
+            &[
+                "remote",
+                "add",
+                "origin",
+                bare.to_str().unwrap_or_else(|| panic!("unexpected None")),
+            ],
+        );
 
         repo
     }
@@ -1198,7 +1258,8 @@ mod tests {
             yaml.push_str(pr_language_yaml);
         }
         yaml.push_str("steps:\n  implement:\n    prompt: test\n");
-        let config = crate::config::WorkflowConfig::from_yaml(&yaml).unwrap_or_else(|e| panic!("{e:?}"));
+        let config =
+            crate::config::WorkflowConfig::from_yaml(&yaml).unwrap_or_else(|e| panic!("{e:?}"));
         crate::workflow::compile(config).unwrap_or_else(|e| panic!("{e:?}"))
     }
 
@@ -1269,7 +1330,8 @@ mod tests {
         );
         let _path_guard = PathEnvGuard::prepend(&bin_dir);
 
-        let result = attempt_pr_creation(&ctx, "test task", "", "").unwrap_or_else(|e| panic!("{e:?}"));
+        let result =
+            attempt_pr_creation(&ctx, "test task", "", "").unwrap_or_else(|e| panic!("{e:?}"));
 
         assert_eq!(result, PrAttemptOutcome::SkippedNoCommits);
         assert!(
@@ -1297,7 +1359,8 @@ mod tests {
         install_fake_gh(&bin_dir, &log_path, &head_path, url);
         let _path_guard = PathEnvGuard::prepend(&bin_dir);
 
-        let result = attempt_pr_creation(&ctx, "add feature", "", "").unwrap_or_else(|e| panic!("{e:?}"));
+        let result =
+            attempt_pr_creation(&ctx, "add feature", "", "").unwrap_or_else(|e| panic!("{e:?}"));
 
         assert_eq!(
             result,
@@ -1316,7 +1379,9 @@ mod tests {
             "helper should create a new commit"
         );
         assert_eq!(
-            fs::read_to_string(&head_path).unwrap_or_else(|e| panic!("{e:?}")).trim(),
+            fs::read_to_string(&head_path)
+                .unwrap_or_else(|e| panic!("{e:?}"))
+                .trim(),
             worktree_head
         );
         assert!(
@@ -1348,7 +1413,8 @@ mod tests {
         install_fake_gh(&bin_dir, &log_path, &head_path, url);
         let _path_guard = PathEnvGuard::prepend(&bin_dir);
 
-        let result = attempt_pr_creation(&ctx, "rerun without changes", "", "").unwrap_or_else(|e| panic!("{e:?}"));
+        let result = attempt_pr_creation(&ctx, "rerun without changes", "", "")
+            .unwrap_or_else(|e| panic!("{e:?}"));
 
         assert_eq!(
             result,
@@ -1362,7 +1428,9 @@ mod tests {
             existing_head
         );
         assert_eq!(
-            fs::read_to_string(&head_path).unwrap_or_else(|e| panic!("{e:?}")).trim(),
+            fs::read_to_string(&head_path)
+                .unwrap_or_else(|e| panic!("{e:?}"))
+                .trim(),
             existing_head
         );
         worktree::cleanup_worktree(&ctx).unwrap_or_else(|e| panic!("{e:?}"));
@@ -1585,7 +1653,9 @@ Previously, emojis were used as user icons."#;
 
         // Then: returns a "Cannot specify both --all and a session ID" error
         assert!(result.is_err(), "expected error but got Ok");
-        let msg = result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string();
+        let msg = result
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+            .to_string();
         assert!(
             msg.contains("Cannot specify both --all and a session ID"),
             "unexpected error message: {msg}"
@@ -1730,7 +1800,9 @@ Previously, emojis were used as user icons."#;
             result.is_err(),
             "expected current-branch mode to reject a branch mismatch"
         );
-        let message = result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string();
+        let message = result
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+            .to_string();
         assert!(message.contains("branch"), "unexpected error: {message}");
         assert!(message.contains("main"), "unexpected error: {message}");
         assert!(
@@ -1768,7 +1840,9 @@ Previously, emojis were used as user icons."#;
             result.is_err(),
             "expected current-branch mode to reject a dirty working tree"
         );
-        let message = result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string();
+        let message = result
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+            .to_string();
         assert!(message.contains("dirty"), "unexpected error: {message}");
     }
 
@@ -1801,7 +1875,9 @@ Previously, emojis were used as user icons."#;
             result.is_err(),
             "expected current-branch mode to reject detached HEAD"
         );
-        let message = result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string();
+        let message = result
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+            .to_string();
         assert!(message.contains("detached"), "unexpected error: {message}");
     }
 

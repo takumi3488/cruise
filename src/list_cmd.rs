@@ -29,7 +29,9 @@ pub async fn run() -> Result<()> {
         };
 
         let Some(idx) = labels.iter().position(|l| l.as_str() == selected) else {
-            return Err(CruiseError::Other(format!("selected label not found: {selected}")));
+            return Err(CruiseError::Other(format!(
+                "selected label not found: {selected}"
+            )));
         };
         let mut session = sessions[idx].clone();
 
@@ -345,8 +347,14 @@ mod tests {
         let actions = session_actions(&session);
 
         // Then: "Run" は "Replan" より前に位置する（主要アクションが先頭）
-        let run_pos = actions.iter().position(|&a| a == "Run").unwrap_or_else(|| panic!("unexpected None"));
-        let replan_pos = actions.iter().position(|&a| a == "Replan").unwrap_or_else(|| panic!("unexpected None"));
+        let run_pos = actions
+            .iter()
+            .position(|&a| a == "Run")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        let replan_pos = actions
+            .iter()
+            .position(|&a| a == "Replan")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert!(
             run_pos < replan_pos,
             "Run should come before Replan in actions list"
@@ -714,7 +722,9 @@ mod tests {
             ),
         )
         .unwrap_or_else(|e| panic!("{e:?}"));
-        let mut perms = fs::metadata(&script_path).unwrap_or_else(|e| panic!("{e:?}")).permissions();
+        let mut perms = fs::metadata(&script_path)
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&script_path, perms).unwrap_or_else(|e| panic!("{e:?}"));
 
@@ -758,7 +768,9 @@ mod tests {
         // fake gh: 常に exit 1
         let script_path = bin_dir.join("gh");
         fs::write(&script_path, "#!/bin/sh\nexit 1\n").unwrap_or_else(|e| panic!("{e:?}"));
-        let mut perms = fs::metadata(&script_path).unwrap_or_else(|e| panic!("{e:?}")).permissions();
+        let mut perms = fs::metadata(&script_path)
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&script_path, perms).unwrap_or_else(|e| panic!("{e:?}"));
 

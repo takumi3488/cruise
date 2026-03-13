@@ -78,7 +78,8 @@ pub fn resolve_config(explicit: Option<&str>) -> Result<(String, ConfigSource)> 
         if !files.is_empty() {
             let path = if files.len() == 1 {
                 let mut it = files.into_iter();
-                it.next().ok_or_else(|| CruiseError::Other("unexpected empty file list".to_string()))?
+                it.next()
+                    .ok_or_else(|| CruiseError::Other("unexpected empty file list".to_string()))?
             } else {
                 prompt_select_config(&files)?
             };
@@ -102,9 +103,7 @@ fn try_read_local(name: &str) -> Result<Option<(String, PathBuf)>> {
     match std::fs::read_to_string(&path) {
         Ok(yaml) => Ok(Some((yaml, to_absolute(path)))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(CruiseError::Other(format!(
-            "failed to read '{name}': {e}"
-        ))),
+        Err(e) => Err(CruiseError::Other(format!("failed to read '{name}': {e}"))),
     }
 }
 
@@ -137,11 +136,7 @@ fn collect_yaml_files(dir: &PathBuf) -> Vec<PathBuf> {
                     return false;
                 }
             }
-            p.is_file()
-                && matches!(
-                    p.extension().and_then(|e| e.to_str()),
-                    Some("yaml" | "yml")
-                )
+            p.is_file() && matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"))
         })
         .collect();
     files.sort_by_key(|p| p.file_name().unwrap_or_default().to_os_string());
@@ -170,7 +165,9 @@ fn prompt_select_config(files: &[PathBuf]) -> Result<PathBuf> {
         Err(e) => return Err(CruiseError::Other(e.to_string())),
     };
 
-    let selection = names.iter().position(|n| n == &selected)
+    let selection = names
+        .iter()
+        .position(|n| n == &selected)
         .ok_or_else(|| CruiseError::Other(format!("selected config not found: {selected}")))?;
     Ok(files[selection].clone())
 }
@@ -240,8 +237,13 @@ mod tests {
     #[test]
     fn test_resolve_explicit_ok() {
         let mut tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| panic!("{e:?}"));
-        writeln!(tmp, "command: [echo]\nsteps:\n  s:\n    command: echo").unwrap_or_else(|e| panic!("{e:?}"));
-        let path = tmp.path().to_str().unwrap_or_else(|| panic!("unexpected None")).to_string();
+        writeln!(tmp, "command: [echo]\nsteps:\n  s:\n    command: echo")
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let path = tmp
+            .path()
+            .to_str()
+            .unwrap_or_else(|| panic!("unexpected None"))
+            .to_string();
         let (yaml, source) = resolve_config(Some(&path)).unwrap_or_else(|e| panic!("{e:?}"));
         assert!(yaml.contains("echo"));
         assert!(matches!(source, ConfigSource::Explicit(_)));
@@ -358,8 +360,12 @@ mod tests {
     #[test]
     fn test_resolve_env_var_ok() {
         let mut tmp = tempfile::NamedTempFile::new().unwrap_or_else(|e| panic!("{e:?}"));
-        writeln!(tmp, "command: [echo]\nsteps:\n  s:\n    command: echo").unwrap_or_else(|e| panic!("{e:?}"));
-        let path = tmp.path().to_str().unwrap_or_else(|| panic!("unexpected None"));
+        writeln!(tmp, "command: [echo]\nsteps:\n  s:\n    command: echo")
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let path = tmp
+            .path()
+            .to_str()
+            .unwrap_or_else(|| panic!("unexpected None"));
 
         let _dir_guard = DirGuard::new();
         let _env_guard = EnvGuard::set("CRUISE_CONFIG", std::ffi::OsStr::new(path));
@@ -398,7 +404,10 @@ mod tests {
             "command: [envvar]\nsteps:\n  s:\n    command: envvar"
         )
         .unwrap_or_else(|e| panic!("{e:?}"));
-        let env_path = env_tmp.path().to_str().unwrap_or_else(|| panic!("unexpected None"));
+        let env_path = env_tmp
+            .path()
+            .to_str()
+            .unwrap_or_else(|| panic!("unexpected None"));
 
         let _dir_guard = DirGuard::new();
         std::env::set_current_dir(tmp_dir.path()).unwrap_or_else(|e| panic!("{e:?}"));
@@ -446,7 +455,12 @@ mod tests {
         let files = collect_yaml_files(&tmp_dir.path().to_path_buf());
         let names: Vec<&str> = files
             .iter()
-            .map(|p| p.file_name().unwrap_or_else(|| panic!("unexpected None")).to_str().unwrap_or_else(|| panic!("unexpected None")))
+            .map(|p| {
+                p.file_name()
+                    .unwrap_or_else(|| panic!("unexpected None"))
+                    .to_str()
+                    .unwrap_or_else(|| panic!("unexpected None"))
+            })
             .collect();
         assert_eq!(names, vec!["a.yml", "b.yaml", "c.yaml"]);
     }

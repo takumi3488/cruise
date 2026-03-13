@@ -104,12 +104,16 @@ fn expand_steps(
             // Validate and expand sub-steps
             let step_count = group_def.steps.len();
             // Non-empty is guaranteed by the is_empty check above.
-            let first_sub = group_def.steps.keys().next()
-                .ok_or_else(|| crate::error::CruiseError::InvalidStepConfig(
-                    format!("group '{group_name}' unexpectedly empty")))?;
-            let last_sub = group_def.steps.keys().last()
-                .ok_or_else(|| crate::error::CruiseError::InvalidStepConfig(
-                    format!("group '{group_name}' unexpectedly empty")))?;
+            let first_sub = group_def.steps.keys().next().ok_or_else(|| {
+                crate::error::CruiseError::InvalidStepConfig(format!(
+                    "group '{group_name}' unexpectedly empty"
+                ))
+            })?;
+            let last_sub = group_def.steps.keys().last().ok_or_else(|| {
+                crate::error::CruiseError::InvalidStepConfig(format!(
+                    "group '{group_name}' unexpectedly empty"
+                ))
+            })?;
             let first_step = format!("{step_name}/{first_sub}");
             let last_step = format!("{step_name}/{last_sub}");
             for (sub_name, sub_step) in &group_def.steps {
@@ -272,7 +276,10 @@ steps:
         // When: compiled
         let c = compiled(yaml);
         // Then: invocation metadata reflects the group definition
-        let meta = c.invocations.get("review-pass").unwrap_or_else(|| panic!("unexpected None"));
+        let meta = c
+            .invocations
+            .get("review-pass")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(meta.max_retries, Some(3));
         assert!(meta.if_condition.is_some());
         assert_eq!(meta.first_step, "review-pass/simplify");
@@ -381,7 +388,12 @@ steps:
         let result = compile(parsed(yaml));
         // Then: error mentions undefined group
         assert!(result.is_err());
-        assert!(result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string().contains("undefined group"));
+        assert!(
+            result
+                .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+                .to_string()
+                .contains("undefined group")
+        );
     }
 
     #[test]
@@ -403,7 +415,9 @@ steps:
         let result = compile(parsed(yaml));
         // Then: migration error pointing users to groups.<name>.steps
         assert!(result.is_err());
-        let msg = result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string();
+        let msg = result
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+            .to_string();
         assert!(
             msg.contains("migration")
                 || msg.contains("groups.<name>.steps")
@@ -429,7 +443,10 @@ steps:
         // Then: error mentions empty group
         assert!(result.is_err());
         assert!(
-            result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string().contains("empty"),
+            result
+                .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+                .to_string()
+                .contains("empty"),
             "expected 'empty' in error"
         );
     }
@@ -456,7 +473,9 @@ steps:
         let result = compile(parsed(yaml));
         // Then: nested group call is rejected
         assert!(result.is_err());
-        let msg = result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string();
+        let msg = result
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+            .to_string();
         assert!(
             msg.contains("nested") || msg.contains("group call") || msg.contains("group"),
             "expected nested-group-call error in: {msg}"
@@ -484,7 +503,10 @@ steps:
         // Then: individual `if` inside group step is rejected
         assert!(result.is_err());
         assert!(
-            result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string().contains("if"),
+            result
+                .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+                .to_string()
+                .contains("if"),
             "expected 'if' in error message"
         );
     }
@@ -510,7 +532,9 @@ steps:
         let result = compile(parsed(yaml));
         // Then: error mentions collision
         assert!(result.is_err());
-        let msg = result.map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})")).to_string();
+        let msg = result
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"))
+            .to_string();
         assert!(
             msg.contains("collides"),
             "expected 'collides' in error message, got: {msg}"
@@ -535,7 +559,10 @@ steps:
         // When: compiled
         let c = compiled(yaml);
         // Then: the expanded step preserves fail_if_no_file_changes
-        let step = c.steps.get("run-review/implement").unwrap_or_else(|| panic!("unexpected None"));
+        let step = c
+            .steps
+            .get("run-review/implement")
+            .unwrap_or_else(|| panic!("unexpected None"));
         assert!(
             step.fail_if_no_file_changes,
             "fail_if_no_file_changes should be preserved after compilation"

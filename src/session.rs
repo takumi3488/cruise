@@ -336,9 +336,7 @@ pub fn current_iso8601() -> String {
         .unwrap_or_default()
         .as_secs();
     let (year, month, day, h, m, s) = seconds_to_datetime(secs);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z"
-    )
+    format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
 /// Parse an ISO 8601 string (`YYYY-MM-DDTHH:MM:SSZ`) to Unix seconds.
@@ -445,9 +443,7 @@ mod tests {
         // 2026-03-06T14:30:00Z
         let secs = 1_741_270_200_u64;
         let (year, month, day, h, m, s) = seconds_to_datetime(secs);
-        let iso = format!(
-            "{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z"
-        );
+        let iso = format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z");
         let parsed = parse_iso8601_secs(&iso).unwrap_or_else(|| panic!("unexpected None"));
         assert_eq!(parsed, secs);
     }
@@ -455,7 +451,8 @@ mod tests {
     #[test]
     fn test_parse_iso8601_known_date() {
         // 2026-03-06T00:00:00Z = days from 1970-01-01 × 86400
-        let secs = parse_iso8601_secs("2026-03-06T00:00:00Z").unwrap_or_else(|| panic!("unexpected None"));
+        let secs =
+            parse_iso8601_secs("2026-03-06T00:00:00Z").unwrap_or_else(|| panic!("unexpected None"));
         let (year, month, day, h, m, s) = seconds_to_datetime(secs);
         assert_eq!(year, 2026);
         assert_eq!(month, 3);
@@ -558,7 +555,9 @@ mod tests {
             "task2".to_string(),
         );
         completed.phase = SessionPhase::Completed;
-        manager.create(&completed).unwrap_or_else(|e| panic!("{e:?}"));
+        manager
+            .create(&completed)
+            .unwrap_or_else(|e| panic!("{e:?}"));
 
         let mut failed = SessionState::new(
             "20260306120000".to_string(),
@@ -654,7 +653,8 @@ mod tests {
             "worktree_path": null,
             "worktree_branch": null
         });
-        std::fs::write(session_dir.join("state.json"), json.to_string()).unwrap_or_else(|e| panic!("{e:?}"));
+        std::fs::write(session_dir.join("state.json"), json.to_string())
+            .unwrap_or_else(|e| panic!("{e:?}"));
 
         let loaded = manager.load(&id).unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(loaded.workspace_mode, WorkspaceMode::Worktree);
@@ -705,7 +705,9 @@ mod tests {
             "completed-task".to_string(),
         );
         completed.phase = SessionPhase::Completed;
-        manager.create(&completed).unwrap_or_else(|e| panic!("{e:?}"));
+        manager
+            .create(&completed)
+            .unwrap_or_else(|e| panic!("{e:?}"));
 
         let mut failed = SessionState::new(
             "20260308120000".to_string(),
@@ -747,7 +749,9 @@ mod tests {
             "done".to_string(),
         );
         completed.phase = SessionPhase::Completed;
-        manager.create(&completed).unwrap_or_else(|e| panic!("{e:?}"));
+        manager
+            .create(&completed)
+            .unwrap_or_else(|e| panic!("{e:?}"));
 
         // When: planned() を呼ぶ
         let result = manager.planned().unwrap_or_else(|e| panic!("{e:?}"));
@@ -802,7 +806,8 @@ mod tests {
         manager.create(&state).unwrap_or_else(|e| panic!("{e:?}"));
 
         let yaml = "command:\n  - echo\nsteps:\n  test:\n    command: \"true\"\n";
-        std::fs::write(manager.sessions_dir().join(&id).join("config.yaml"), yaml).unwrap_or_else(|e| panic!("{e:?}"));
+        std::fs::write(manager.sessions_dir().join(&id).join("config.yaml"), yaml)
+            .unwrap_or_else(|e| panic!("{e:?}"));
 
         let config = manager.load_config(&id).unwrap_or_else(|e| panic!("{e:?}"));
 
@@ -829,7 +834,9 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e:?}"));
 
-        let err = manager.load_config(&id).map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = manager
+            .load_config(&id)
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
 
         assert!(matches!(err, CruiseError::ConfigParseError(_)));
     }

@@ -151,20 +151,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_successful_command() {
-        let result = run_command("echo hello", 0, &HashMap::new()).await.unwrap_or_else(|e| panic!("{e:?}"));
+        let result = run_command("echo hello", 0, &HashMap::new())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(result.success);
     }
 
     #[tokio::test]
     async fn test_run_failing_command() {
-        let result = run_command("exit 1", 0, &HashMap::new()).await.unwrap_or_else(|e| panic!("{e:?}"));
+        let result = run_command("exit 1", 0, &HashMap::new())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(!result.success);
     }
 
     #[tokio::test]
     async fn test_run_commands_sequential() {
         let cmds = vec!["echo a".to_string(), "echo b".to_string()];
-        let result = run_commands(&cmds, 0, &HashMap::new()).await.unwrap_or_else(|e| panic!("{e:?}"));
+        let result = run_commands(&cmds, 0, &HashMap::new())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(result.success);
     }
 
@@ -172,13 +178,17 @@ mod tests {
     async fn test_run_commands_stops_on_failure() {
         // Second command would succeed but shouldn't run because first fails.
         let cmds = vec!["exit 1".to_string(), "echo ok".to_string()];
-        let result = run_commands(&cmds, 0, &HashMap::new()).await.unwrap_or_else(|e| panic!("{e:?}"));
+        let result = run_commands(&cmds, 0, &HashMap::new())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(!result.success);
     }
 
     #[tokio::test]
     async fn test_run_commands_empty() {
-        let result = run_commands(&[], 0, &HashMap::new()).await.unwrap_or_else(|e| panic!("{e:?}"));
+        let result = run_commands(&[], 0, &HashMap::new())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(result.success);
     }
 
@@ -209,7 +219,9 @@ mod tests {
             "echo step1".to_string(),
             "echo 'err_msg' >&2; exit 1".to_string(),
         ];
-        let result = run_commands(&cmds, 0, &HashMap::new()).await.unwrap_or_else(|e| panic!("{e:?}"));
+        let result = run_commands(&cmds, 0, &HashMap::new())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(!result.success);
         assert!(result.stderr.contains("err_msg"));
     }
@@ -230,7 +242,9 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("GREETING".to_string(), "hello".to_string());
         // stdout is inherited (not captured), but success means the command ran.
-        let result = run_command("echo $GREETING", 0, &env).await.unwrap_or_else(|e| panic!("{e:?}"));
+        let result = run_command("echo $GREETING", 0, &env)
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert!(result.success);
     }
 }

@@ -391,14 +391,20 @@ mod tests {
         let result = resolve_input(None, Some("  add feature from pipe\n".to_string()), || {
             panic!("interactive prompt should not run")
         });
-        assert_eq!(result.unwrap_or_else(|e| panic!("{e:?}")), "add feature from pipe");
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("{e:?}")),
+            "add feature from pipe"
+        );
     }
 
     #[test]
     fn test_resolve_input_without_arg_or_stdin_uses_interactive_result() {
         // Given: no CLI arg or stdin input is available
         let result = resolve_input(None, None, || Ok("resume in place".to_string()));
-        assert_eq!(result.unwrap_or_else(|e| panic!("{e:?}")), "resume in place");
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("{e:?}")),
+            "resume in place"
+        );
     }
 
     // -----------------------------------------------------------------------

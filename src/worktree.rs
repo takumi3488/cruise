@@ -41,7 +41,10 @@ pub fn setup_session_worktree(
 
     // Reuse existing worktree directory if present.
     if worktree_path.is_dir() {
-        let branch = existing_branch.map_or_else(|| default_branch_name(session_id, input), std::string::ToString::to_string);
+        let branch = existing_branch.map_or_else(
+            || default_branch_name(session_id, input),
+            std::string::ToString::to_string,
+        );
         return Ok((
             WorktreeContext {
                 path: worktree_path,
@@ -248,7 +251,8 @@ mod tests {
         let worktrees_dir = tmp.path().join("worktrees");
         let session_id = "20260306143000";
         let (ctx, reused) =
-            setup_session_worktree(&repo, session_id, "test task", &worktrees_dir, None).unwrap_or_else(|e| panic!("{e:?}"));
+            setup_session_worktree(&repo, session_id, "test task", &worktrees_dir, None)
+                .unwrap_or_else(|e| panic!("{e:?}"));
 
         assert!(!reused, "should not be reused on first creation");
         assert!(ctx.path.exists(), "worktree directory should exist");
@@ -275,7 +279,8 @@ mod tests {
 
         let worktrees_dir = tmp.path().join("worktrees");
         let session_id = "20260306143001";
-        let (ctx, _) = setup_session_worktree(&repo, session_id, "", &worktrees_dir, None).unwrap_or_else(|e| panic!("{e:?}"));
+        let (ctx, _) = setup_session_worktree(&repo, session_id, "", &worktrees_dir, None)
+            .unwrap_or_else(|e| panic!("{e:?}"));
 
         assert_eq!(ctx.branch, format!("cruise/{session_id}"));
         cleanup_worktree(&ctx).unwrap_or_else(|e| panic!("{e:?}"));
@@ -328,7 +333,10 @@ mod tests {
         copy_worktree_includes(&src, &dst).unwrap_or_else(|e| panic!("{e:?}"));
 
         assert!(dst.join(".env").exists());
-        assert_eq!(fs::read_to_string(dst.join(".env")).unwrap_or_else(|e| panic!("{e:?}")), "SECRET=123");
+        assert_eq!(
+            fs::read_to_string(dst.join(".env")).unwrap_or_else(|e| panic!("{e:?}")),
+            "SECRET=123"
+        );
     }
 
     #[test]

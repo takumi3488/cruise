@@ -151,7 +151,9 @@ mod tests {
     fn test_resolve_input() {
         let store = VariableStore::new("hello world".to_string());
         assert_eq!(
-            store.resolve("Input: {input}").unwrap_or_else(|e| panic!("{e:?}")),
+            store
+                .resolve("Input: {input}")
+                .unwrap_or_else(|e| panic!("{e:?}")),
             "Input: hello world"
         );
     }
@@ -161,7 +163,9 @@ mod tests {
         let mut store = VariableStore::new("input".to_string());
         store.set_prev_output(Some("LLM response".to_string()));
         assert_eq!(
-            store.resolve("Prev: {prev.output}").unwrap_or_else(|e| panic!("{e:?}")),
+            store
+                .resolve("Prev: {prev.output}")
+                .unwrap_or_else(|e| panic!("{e:?}")),
             "Prev: LLM response"
         );
     }
@@ -171,7 +175,9 @@ mod tests {
         let mut store = VariableStore::new("input".to_string());
         store.set_prev_input(Some("user text".to_string()));
         assert_eq!(
-            store.resolve("User said: {prev.input}").unwrap_or_else(|e| panic!("{e:?}")),
+            store
+                .resolve("User said: {prev.input}")
+                .unwrap_or_else(|e| panic!("{e:?}")),
             "User said: user text"
         );
     }
@@ -181,7 +187,9 @@ mod tests {
         let mut store = VariableStore::new("input".to_string());
         store.set_prev_stderr(Some("error message".to_string()));
         assert_eq!(
-            store.resolve("Error: {prev.stderr}").unwrap_or_else(|e| panic!("{e:?}")),
+            store
+                .resolve("Error: {prev.stderr}")
+                .unwrap_or_else(|e| panic!("{e:?}")),
             "Error: error message"
         );
     }
@@ -191,7 +199,9 @@ mod tests {
         let mut store = VariableStore::new("input".to_string());
         store.set_prev_success(Some(true));
         assert_eq!(
-            store.resolve("Success: {prev.success}").unwrap_or_else(|e| panic!("{e:?}")),
+            store
+                .resolve("Success: {prev.success}")
+                .unwrap_or_else(|e| panic!("{e:?}")),
             "Success: true"
         );
     }
@@ -204,21 +214,27 @@ mod tests {
 
         let mut store = VariableStore::new("input".to_string());
         store.set_named_file("plan", path);
-        let result = store.resolve("Plan: {plan}").unwrap_or_else(|e| panic!("{e:?}"));
+        let result = store
+            .resolve("Plan: {plan}")
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(result, format!("Plan: {path_str}"));
     }
 
     #[test]
     fn test_resolve_undefined_variable() {
         let store = VariableStore::new("input".to_string());
-        let err = store.resolve("Value: {undefined}").map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = store
+            .resolve("Value: {undefined}")
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         matches!(err, crate::error::CruiseError::UndefinedVariable(name) if name == "undefined");
     }
 
     #[test]
     fn test_resolve_undefined_prev_output() {
         let store = VariableStore::new("input".to_string());
-        let err = store.resolve("{prev.output}").map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = store
+            .resolve("{prev.output}")
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         matches!(err, crate::error::CruiseError::UndefinedVariable(name) if name == "prev.output");
     }
 
@@ -227,7 +243,9 @@ mod tests {
         let mut store = VariableStore::new("hello".to_string());
         store.set_prev_output(Some("world".to_string()));
         assert_eq!(
-            store.resolve("{input} {prev.output}").unwrap_or_else(|e| panic!("{e:?}")),
+            store
+                .resolve("{input} {prev.output}")
+                .unwrap_or_else(|e| panic!("{e:?}")),
             "hello world"
         );
     }
@@ -236,7 +254,9 @@ mod tests {
     fn test_resolve_no_variables() {
         let store = VariableStore::new("input".to_string());
         assert_eq!(
-            store.resolve("No variables here").unwrap_or_else(|e| panic!("{e:?}")),
+            store
+                .resolve("No variables here")
+                .unwrap_or_else(|e| panic!("{e:?}")),
             "No variables here"
         );
     }
@@ -245,7 +265,12 @@ mod tests {
     fn test_resolve_unclosed_brace() {
         let store = VariableStore::new("input".to_string());
         // No closing brace — emit literally.
-        assert_eq!(store.resolve("Hello {unclosed").unwrap_or_else(|e| panic!("{e:?}")), "Hello {unclosed");
+        assert_eq!(
+            store
+                .resolve("Hello {unclosed")
+                .unwrap_or_else(|e| panic!("{e:?}")),
+            "Hello {unclosed"
+        );
     }
 
     #[test]
@@ -254,7 +279,9 @@ mod tests {
         let mut store = VariableStore::new("input".to_string());
         store.set_named_value("greeting", "Hello".to_string());
         // When: resolved
-        let result = store.resolve("Say: {greeting}").unwrap_or_else(|e| panic!("{e:?}"));
+        let result = store
+            .resolve("Say: {greeting}")
+            .unwrap_or_else(|e| panic!("{e:?}"));
         // Then: variable is substituted correctly
         assert_eq!(result, "Say: Hello");
     }
@@ -268,7 +295,9 @@ mod tests {
             "https://github.com/owner/repo/pull/42".to_string(),
         );
         // When: resolved in a template
-        let result = store.resolve("PR: {pr.url}").unwrap_or_else(|e| panic!("{e:?}"));
+        let result = store
+            .resolve("PR: {pr.url}")
+            .unwrap_or_else(|e| panic!("{e:?}"));
         // Then: URL is substituted
         assert_eq!(result, "PR: https://github.com/owner/repo/pull/42");
     }
@@ -293,7 +322,9 @@ mod tests {
         store.set_named_value("pr.number", "10".to_string());
         store.set_named_value("pr.number", "42".to_string());
         // When: resolved
-        let result = store.resolve("{pr.number}").unwrap_or_else(|e| panic!("{e:?}"));
+        let result = store
+            .resolve("{pr.number}")
+            .unwrap_or_else(|e| panic!("{e:?}"));
         // Then: latest value wins
         assert_eq!(result, "42");
     }
@@ -304,7 +335,9 @@ mod tests {
         let store = VariableStore::new("hello".to_string());
         // The parser sees `{` → starts collecting; collects `{input` until `}` is hit.
         // Then calls get_variable("{input") which is undefined.
-        let err = store.resolve("{{input}}").map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = store
+            .resolve("{{input}}")
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         assert!(
             matches!(err, crate::error::CruiseError::UndefinedVariable(ref n) if n == "{input"),
             "expected UndefinedVariable(\"{{input\"), got: {err:?}"
@@ -316,7 +349,9 @@ mod tests {
         // Given: template "{}" — empty variable name
         let store = VariableStore::new("hello".to_string());
         // get_variable("") falls through to named lookup, nothing registered → UndefinedVariable
-        let err = store.resolve("{}").map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = store
+            .resolve("{}")
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         assert!(
             matches!(err, crate::error::CruiseError::UndefinedVariable(ref n) if n.is_empty()),
             "expected UndefinedVariable(\"\"), got: {err:?}"
@@ -328,7 +363,9 @@ mod tests {
         // Given: template "trailing {" — no closing brace
         let store = VariableStore::new("hello".to_string());
         // Parser hits `{`, collects until end-of-string, closed=false → emits literally.
-        let result = store.resolve("trailing {").unwrap_or_else(|e| panic!("{e:?}"));
+        let result = store
+            .resolve("trailing {")
+            .unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(result, "trailing {");
     }
 
@@ -338,13 +375,17 @@ mod tests {
         let mut store = VariableStore::new("input".to_string());
         store.set_named_value("foo.bar.baz", "deep".to_string());
         // When: resolved
-        let result = store.resolve("{foo.bar.baz}").unwrap_or_else(|e| panic!("{e:?}"));
+        let result = store
+            .resolve("{foo.bar.baz}")
+            .unwrap_or_else(|e| panic!("{e:?}"));
         // Then: resolves correctly
         assert_eq!(result, "deep");
 
         // And: an unregistered dotted name returns UndefinedVariable
         let store2 = VariableStore::new("input".to_string());
-        let err = store2.resolve("{foo.bar.baz}").map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
+        let err = store2
+            .resolve("{foo.bar.baz}")
+            .map_or_else(|e| e, |v| panic!("expected Err, got Ok({v:?})"));
         assert!(
             matches!(err, crate::error::CruiseError::UndefinedVariable(ref n) if n == "foo.bar.baz"),
             "expected UndefinedVariable(\"foo.bar.baz\"), got: {err:?}"
