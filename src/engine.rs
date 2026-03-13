@@ -39,8 +39,6 @@ enum StepOutcome {
     Done,
 }
 
-/// Build a map from each step name to its invocation call-site.
-
 /// Check whether the group containing `current_step` has exhausted its retry budget.
 ///
 /// Returns `Some(StepOutcome)` when the group should be skipped entirely.
