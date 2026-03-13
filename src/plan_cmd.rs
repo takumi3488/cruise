@@ -478,7 +478,10 @@ mod tests {
             panic!("interactive prompt should not run")
         });
         // Then: 先頭・末尾の空白のみ trim され、内部改行は保持される
-        assert_eq!(result.unwrap_or_else(|e| panic!("{e:?}")), "line1\nline2\nline3");
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("{e:?}")),
+            "line1\nline2\nline3"
+        );
     }
 
     #[test]
