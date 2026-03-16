@@ -796,6 +796,8 @@ mod tests {
     }
 
     // Core test helper: compile `yaml`, build an `ExecutionContext`, and run.
+    // `on_step_start` is always a no-op in this helper; tests that need a custom
+    // callback build `ExecutionContext` directly (see `test_on_step_start_callback_called`).
     #[expect(clippy::too_many_arguments)]
     async fn run_config_inner(
         yaml: &str,
@@ -807,7 +809,6 @@ mod tests {
         config_reloader: Option<&dyn Fn() -> Result<Option<crate::workflow::CompiledWorkflow>>>,
         cancel_token: Option<&CancellationToken>,
         option_handler: &dyn OptionHandler,
-        on_step_start: &dyn Fn(&str) -> Result<()>,
     ) -> Result<ExecutionResult> {
         let _guard = crate::test_support::lock_process();
         let config = make_config(yaml);
@@ -825,7 +826,7 @@ mod tests {
             compiled: &compiled,
             max_retries,
             rate_limit_retries,
-            on_step_start,
+            on_step_start: &|_| Ok(()),
             cancel_token,
             option_handler,
             config_reloader,
@@ -850,7 +851,6 @@ mod tests {
             None,
             None,
             &NoOpOptionHandler,
-            &|_| Ok(()),
         )
         .await
     }
@@ -874,7 +874,6 @@ mod tests {
             None,
             None,
             &NoOpOptionHandler,
-            &|_| Ok(()),
         )
         .await
     }
@@ -1545,7 +1544,6 @@ steps:
             None,
             None,
             &NoOpOptionHandler,
-            &|_| Ok(()),
         )
         .await;
         // Then: workflow does NOT return StepMadeNoFileChanges (files changed, so no-change failure is skipped)
@@ -1914,7 +1912,6 @@ steps:
             Some(&reloader),
             None,
             &NoOpOptionHandler,
-            &|_| Ok(()),
         )
         .await;
         // Then: 正常完了し、reloader が呼ばれている
@@ -1952,7 +1949,6 @@ steps:
             Some(&reloader),
             None,
             &NoOpOptionHandler,
-            &|_| Ok(()),
         )
         .await;
         // Then: 正常完了する（更新後の config でステップが実行される）
@@ -1985,7 +1981,6 @@ steps:
             Some(&reloader),
             None,
             &NoOpOptionHandler,
-            &|_| Ok(()),
         )
         .await;
         // Then: 旧 config を維持して正常完了する（step1 が実行される）
@@ -2016,7 +2011,6 @@ steps:
             None,
             cancel_token,
             handler,
-            &|_| Ok(()),
         )
         .await
     }
