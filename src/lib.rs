@@ -7,6 +7,7 @@ pub mod error;
 pub mod file_tracker;
 pub mod option_handler;
 pub mod resolver;
+pub mod session;
 pub mod step;
 pub mod variable;
 pub mod workflow;

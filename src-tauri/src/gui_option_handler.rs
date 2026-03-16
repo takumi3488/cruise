@@ -46,6 +46,16 @@ impl<E: EventEmitter> GuiOptionHandler<E> {
     }
 }
 
+/// Allow `tauri::ipc::Channel<WorkflowEvent>` to be used directly as an [`EventEmitter`].
+///
+/// The `Channel` is already `Clone + Send + Sync` (internally Arc-backed), so this impl
+/// lets `GuiOptionHandler<Channel<WorkflowEvent>>` be constructed in Tauri command handlers.
+impl EventEmitter for tauri::ipc::Channel<crate::events::WorkflowEvent> {
+    fn emit(&self, event: crate::events::WorkflowEvent) {
+        let _ = self.send(event);
+    }
+}
+
 fn choices_to_dtos(choices: &[OptionChoice]) -> Vec<ChoiceDto> {
     choices
         .iter()

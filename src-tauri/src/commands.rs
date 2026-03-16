@@ -1,8 +1,314 @@
+use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 
 use cruise::cancellation::CancellationToken;
+use cruise::session::{SessionManager, SessionPhase, current_iso8601, get_cruise_home};
 use cruise::step::option::OptionResult;
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+
+use crate::events::WorkflowEvent;
+use crate::gui_option_handler::GuiOptionHandler;
+use crate::state::AppState;
+
+// ─── DTOs ─────────────────────────────────────────────────────────────────────
+
+/// Serializable representation of a session, sent to the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDto {
+    pub id: String,
+    pub phase: String,
+    /// Error message when `phase == "Failed"`.
+    pub phase_error: Option<String>,
+    pub config_source: String,
+    pub input: String,
+    pub current_step: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub worktree_branch: Option<String>,
+    pub pr_url: Option<String>,
+}
+
+impl From<cruise::session::SessionState> for SessionDto {
+    fn from(s: cruise::session::SessionState) -> Self {
+        let (phase_label, phase_error) = match &s.phase {
+            SessionPhase::Failed(e) => ("Failed".to_string(), Some(e.clone())),
+            other => (other.label().to_string(), None),
+        };
+        Self {
+            id: s.id,
+            phase: phase_label,
+            phase_error,
+            config_source: s.config_source,
+            input: s.input,
+            current_step: s.current_step,
+            created_at: s.created_at,
+            completed_at: s.completed_at,
+            worktree_branch: s.worktree_branch,
+            pr_url: s.pr_url,
+        }
+    }
+}
+
+/// Result of a cleanup operation, returned to the frontend.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupResultDto {
+    pub deleted: usize,
+    pub skipped: usize,
+}
+
+/// Option result sent by the frontend when responding to an [`WorkflowEvent::OptionRequired`].
+///
+/// Mirrors [`OptionResult`] but derives [`Deserialize`] for IPC deserialization.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptionResultDto {
+    pub next_step: Option<String>,
+    pub text_input: Option<String>,
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+fn new_session_manager() -> std::result::Result<SessionManager, String> {
+    let cruise_home = get_cruise_home().map_err(|e| e.to_string())?;
+    Ok(SessionManager::new(cruise_home))
+}
+
+// ─── Read commands ─────────────────────────────────────────────────────────────
+
+/// List all sessions, sorted oldest-first.
+#[tauri::command]
+pub fn list_sessions() -> std::result::Result<Vec<SessionDto>, String> {
+    let manager = new_session_manager()?;
+    manager
+        .list()
+        .map(|sessions| sessions.into_iter().map(SessionDto::from).collect())
+        .map_err(|e| e.to_string())
+}
+
+/// Get a single session by ID.
+#[tauri::command]
+pub fn get_session(session_id: String) -> std::result::Result<SessionDto, String> {
+    let manager = new_session_manager()?;
+    manager
+        .load(&session_id)
+        .map(SessionDto::from)
+        .map_err(|e| e.to_string())
+}
+
+/// Return the plan markdown for a session.
+#[tauri::command]
+pub fn get_session_plan(session_id: String) -> std::result::Result<String, String> {
+    let manager = new_session_manager()?;
+    let session = manager.load(&session_id).map_err(|e| e.to_string())?;
+    let plan_path = session.plan_path(&manager.sessions_dir());
+    std::fs::read_to_string(&plan_path)
+        .map_err(|e| format!("failed to read plan {}: {}", plan_path.display(), e))
+}
+
+// ─── Write commands ────────────────────────────────────────────────────────────
+
+/// Cancel the currently running workflow session.
+#[tauri::command]
+pub fn cancel_session(state: tauri::State<'_, AppState>) -> std::result::Result<(), String> {
+    do_cancel_session(&state.cancel_token)
+}
+
+/// Deliver the frontend's option-step response to the engine.
+#[tauri::command]
+pub fn respond_to_option(
+    result: OptionResultDto,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let option_result = OptionResult {
+        next_step: result.next_step,
+        text_input: result.text_input,
+    };
+    do_respond_to_option(&state.option_responder, option_result)
+}
+
+/// Remove Completed sessions whose PR is closed or merged.
+#[tauri::command]
+pub fn clean_sessions() -> std::result::Result<CleanupResultDto, String> {
+    let manager = new_session_manager()?;
+    manager
+        .cleanup_by_pr_status()
+        .map(|r| CleanupResultDto {
+            deleted: r.deleted,
+            skipped: r.skipped,
+        })
+        .map_err(|e| e.to_string())
+}
+
+// ─── run_session ───────────────────────────────────────────────────────────────
+
+/// Execute a session's workflow, streaming [`WorkflowEvent`]s over `channel`.
+///
+/// The engine runs on a dedicated blocking thread (`spawn_blocking`) so that
+/// [`GuiOptionHandler::select_option`]'s `blocking_recv()` does not starve the
+/// async runtime. `execute_steps` is driven via `Handle::current().block_on()`
+/// inside that thread.
+///
+/// # Phase-2 simplifications
+/// - No worktree creation (uses `worktree_path` if already set, else `base_dir`)
+/// - No conflict resolution on session saves
+/// - No config hot-reloading
+/// - No automatic PR creation
+#[tauri::command]
+#[expect(clippy::too_many_lines)]
+pub async fn run_session(
+    session_id: String,
+    channel: tauri::ipc::Channel<WorkflowEvent>,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let manager = new_session_manager()?;
+    let mut session = manager.load(&session_id).map_err(|e| e.to_string())?;
+
+    if !session.phase.is_runnable() {
+        return Err(format!(
+            "Session {} is in '{}' phase and cannot be run",
+            session_id,
+            session.phase.label()
+        ));
+    }
+
+    let config = manager.load_config(&session).map_err(|e| e.to_string())?;
+    let compiled = cruise::workflow::compile(config).map_err(|e| e.to_string())?;
+
+    let start_step = session.current_step.clone().map_or_else(
+        || {
+            compiled
+                .steps
+                .keys()
+                .next()
+                .ok_or_else(|| "config has no steps".to_string())
+                .map(Clone::clone)
+        },
+        Ok,
+    )?;
+
+    session.phase = SessionPhase::Running;
+    manager.save(&session).map_err(|e| e.to_string())?;
+
+    let cancel_token = CancellationToken::new();
+    {
+        let mut guard = state
+            .cancel_token
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?;
+        *guard = Some(cancel_token.clone());
+    }
+
+    let option_responder = Arc::clone(&state.option_responder);
+    let sessions_dir = manager.sessions_dir();
+    let plan_path = session.plan_path(&sessions_dir);
+    let input = session.input.clone();
+    let exec_root = session
+        .worktree_path
+        .clone()
+        .unwrap_or_else(|| session.base_dir.clone());
+    let token_for_task = cancel_token.clone();
+    let channel_for_step = channel.clone();
+    let channel_for_handler = Arc::new(channel.clone());
+    let sid_for_spawn = session_id.clone();
+
+    let exec_result = tokio::task::spawn_blocking(
+        move || -> cruise::error::Result<cruise::engine::ExecutionResult> {
+            use cruise::engine::{ExecutionContext, execute_steps};
+            use cruise::file_tracker::FileTracker;
+            use cruise::variable::VariableStore;
+
+            // Temporarily change the working directory for command steps.
+            let original_dir = std::env::current_dir().ok();
+            std::env::set_current_dir(&exec_root).map_err(|e| {
+                cruise::error::CruiseError::Other(format!("failed to set working dir: {e}"))
+            })?;
+
+            let total_steps = compiled.steps.len();
+            let step_counter = Cell::new(0usize);
+            let on_step_start = |step: &str| -> cruise::error::Result<()> {
+                let index = step_counter.get();
+                step_counter.set(index + 1);
+                let _ = channel_for_step.send(WorkflowEvent::StepStarted {
+                    step: step.to_string(),
+                    index,
+                    total: total_steps,
+                });
+                Ok(())
+            };
+
+            let handler =
+                GuiOptionHandler::new(channel_for_handler, sid_for_spawn, option_responder);
+
+            let mut vars = VariableStore::new(input);
+            vars.set_named_file("plan", plan_path);
+            let mut tracker = FileTracker::with_root(exec_root);
+
+            let ctx = ExecutionContext {
+                compiled: &compiled,
+                max_retries: 10,
+                rate_limit_retries: 5,
+                on_step_start: &on_step_start,
+                cancel_token: Some(&token_for_task),
+                option_handler: &handler,
+                config_reloader: None,
+            };
+
+            let handle = tokio::runtime::Handle::current();
+            let result = handle.block_on(execute_steps(&ctx, &mut vars, &mut tracker, &start_step));
+
+            if let Some(dir) = original_dir {
+                let _ = std::env::set_current_dir(dir);
+            }
+
+            result
+        },
+    )
+    .await
+    .map_err(|e| format!("execution task panicked: {e}"))?;
+
+    // Clear the cancel token slot.
+    {
+        let mut guard = state
+            .cancel_token
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?;
+        *guard = None;
+    }
+
+    // Reload session to pick up any intermediate saves, then apply the final phase.
+    let mut final_session = manager.load(&session_id).unwrap_or(session);
+
+    match exec_result {
+        Ok(exec) => {
+            final_session.phase = SessionPhase::Completed;
+            final_session.completed_at = Some(current_iso8601());
+            let _ = channel.send(WorkflowEvent::WorkflowCompleted {
+                run: exec.run,
+                skipped: exec.skipped,
+                failed: exec.failed,
+            });
+            manager.save(&final_session).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Err(cruise::error::CruiseError::Interrupted) => {
+            final_session.phase = SessionPhase::Suspended;
+            let _ = channel.send(WorkflowEvent::WorkflowCancelled);
+            manager.save(&final_session).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            final_session.phase = SessionPhase::Failed(msg.clone());
+            final_session.completed_at = Some(current_iso8601());
+            let _ = channel.send(WorkflowEvent::WorkflowFailed { error: msg.clone() });
+            manager.save(&final_session).map_err(|e2| e2.to_string())?;
+            Err(msg)
+        }
+    }
+}
 
 /// Inner logic for the `cancel_session` IPC command.
 ///
