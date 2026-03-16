@@ -87,7 +87,7 @@ pub struct SessionState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SessionStateFingerprint([u8; 32]);
+pub struct SessionStateFingerprint([u8; 32]);
 
 impl SessionStateFingerprint {
     fn from_bytes(bytes: &[u8]) -> Self {
@@ -96,7 +96,7 @@ impl SessionStateFingerprint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SessionFileContents {
+pub enum SessionFileContents {
     Missing,
     Parsed {
         state: Box<SessionState>,
@@ -110,7 +110,7 @@ pub(crate) enum SessionFileContents {
 
 impl SessionFileContents {
     #[must_use]
-    pub(crate) fn fingerprint(&self) -> Option<SessionStateFingerprint> {
+    pub fn fingerprint(&self) -> Option<SessionStateFingerprint> {
         match self {
             Self::Missing => None,
             Self::Parsed { fingerprint, .. } | Self::Invalid { fingerprint, .. } => {
@@ -271,7 +271,7 @@ impl SessionManager {
     /// # Errors
     ///
     /// Returns an error if the file exists but cannot be read.
-    pub(crate) fn inspect_state_file(&self, id: &str) -> Result<SessionFileContents> {
+    pub fn inspect_state_file(&self, id: &str) -> Result<SessionFileContents> {
         let path = self.state_path(id);
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
