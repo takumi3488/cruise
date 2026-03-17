@@ -30,3 +30,9 @@ steps:
       {prev.stderr}
     next: test
 
+  verify-completion:
+    prompt: |
+      Review {plan} and verify that ALL phases/sections have been fully implemented.
+      Check the actual codebase against each item in the plan.
+      If any phase or section remains unimplemented, implement it now and run the tests.
+

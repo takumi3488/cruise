@@ -183,6 +183,14 @@ impl WorkflowConfig {
             },
         );
 
+        steps.insert(
+            "verify-completion".to_string(),
+            StepConfig {
+                prompt: Some(include_str!("../prompts/verify-completion.md").to_string()),
+                ..Default::default()
+            },
+        );
+
         Self {
             command: vec![
                 "claude".to_string(),
@@ -688,7 +696,7 @@ steps:
         assert_eq!(config.model, Some("sonnet".to_string()));
         assert_eq!(config.plan_model, Some("opus".to_string()));
         assert_eq!(config.pr_language, DEFAULT_PR_LANGUAGE);
-        assert_eq!(config.steps.len(), 2);
+        assert_eq!(config.steps.len(), 3);
 
         let write_test = config
             .steps
@@ -708,6 +716,18 @@ steps:
             .unwrap_or_else(|| panic!("unexpected None"));
         assert!(
             implement
+                .prompt
+                .as_deref()
+                .unwrap_or_else(|| panic!("unexpected None"))
+                .contains("{plan}")
+        );
+
+        let verify = config
+            .steps
+            .get("verify-completion")
+            .unwrap_or_else(|| panic!("unexpected None"));
+        assert!(
+            verify
                 .prompt
                 .as_deref()
                 .unwrap_or_else(|| panic!("unexpected None"))

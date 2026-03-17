@@ -1,7 +1,9 @@
 Based on {plan}, please create tests before implementing the production code.
 
+**CRITICAL: Create tests covering ALL sections and ALL phases in the plan. Do not stop at Phase 1 — every phase and section listed in the plan must have corresponding tests.**
+
 **What to do:**
-1. Review the plan report to understand the intended behavior and interfaces to be implemented.
+1. Read the entire plan from start to finish and identify ALL phases and sections before writing any tests.
 2. Examine the existing code and tests of the target module to grasp the testing patterns.
 3. Create unit tests for the planned functionality.
 4. Determine the necessity of integration tests and create them if required:

@@ -1,5 +1,7 @@
 Implement according to the plan for {plan} such that the tests pass.
 
+**CRITICAL: Implement ALL sections and ALL phases in the plan. Do not stop at Phase 1 — every phase and section listed in the plan must be fully implemented before considering the work complete.**
+
 **Important**: Tests have already been created. Implement such that the existing tests pass.
 - Review existing test files to understand the expected behavior
 - Implement production code to make the tests pass
@@ -11,6 +13,7 @@ Implement according to the plan for {plan} such that the tests pass.
 
 **Self-check before implementation completion (mandatory):**
 Before running the build and tests, please check the following:
+- Confirmed that ALL phases/sections from the plan have been implemented (not just Phase 1)
 - If new parameters/fields were added, confirmed via grep that they are actually passed from the caller
 - Confirmed whether fallback is truly necessary in places using `??`, `||`, `= defaultValue`
 - Confirmed that refactored code/exports that were replaced do not remain
