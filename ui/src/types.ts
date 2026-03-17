@@ -1,7 +1,7 @@
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 export type SessionPhase =
-  | "AwaitingApproval"
+  | "Awaiting Approval"
   | "Planned"
   | "Running"
   | "Completed"
@@ -14,12 +14,15 @@ export interface Session {
   /** Populated when phase === "Failed" */
   phaseError?: string;
   configSource: string;
+  baseDir: string;
   input: string;
   currentStep?: string;
   createdAt: string;
   completedAt?: string;
   worktreeBranch?: string;
   prUrl?: string;
+  updatedAt?: string;
+  awaitingInput?: boolean;
 }
 
 // ─── IPC Events ───────────────────────────────────────────────────────────────

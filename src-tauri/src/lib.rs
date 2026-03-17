@@ -11,6 +11,7 @@ pub fn run() {
             commands::list_sessions,
             commands::get_session,
             commands::get_session_plan,
+            commands::get_session_log,
             commands::run_session,
             commands::cancel_session,
             commands::respond_to_option,

@@ -57,3 +57,8 @@ export function respondToOption(result: {
 export function cleanSessions(): Promise<CleanupResult> {
   return invoke<CleanupResult>("clean_sessions");
 }
+
+/** Return the run log for a session as plain text. Empty string if not yet run. */
+export function getSessionLog(sessionId: string): Promise<string> {
+  return invoke<string>("get_session_log", { sessionId });
+}

@@ -84,6 +84,12 @@ pub struct SessionState {
     /// Absolute path to the original config file (None for builtin or old sessions).
     #[serde(default)]
     pub config_path: Option<PathBuf>,
+    /// ISO 8601 last-updated time (auto-set on every save).
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    /// True when the session is waiting for user input (option step).
+    #[serde(default)]
+    pub awaiting_input: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +144,8 @@ impl SessionState {
             target_branch: None,
             pr_url: None,
             config_path: None,
+            updated_at: None,
+            awaiting_input: false,
         }
     }
 
@@ -241,16 +249,26 @@ impl SessionManager {
 
     /// Persist a session state to disk.
     ///
+    /// Automatically sets `updated_at` to the current UTC time before writing.
+    ///
     /// # Errors
     ///
     /// Returns an error if the state cannot be serialized or written to disk.
     pub fn save(&self, state: &SessionState) -> Result<()> {
-        self.save_with_fingerprint(state)?;
+        let mut state = state.clone();
+        state.updated_at = Some(current_iso8601());
+        self.save_with_fingerprint(&state)?;
         Ok(())
     }
 
     pub(crate) fn state_path(&self, id: &str) -> PathBuf {
         self.sessions_dir().join(id).join("state.json")
+    }
+
+    /// Get the path to the run log file for a session.
+    #[must_use]
+    pub fn log_path(&self, id: &str) -> PathBuf {
+        self.sessions_dir().join(id).join("run.log")
     }
 
     pub(crate) fn load_with_fingerprint(
@@ -710,11 +728,17 @@ mod tests {
             .inspect_state_file(&id)
             .unwrap_or_else(|e| panic!("{e:?}"));
 
-        // Then: both APIs observe the same parsed state and fingerprint
-        assert_eq!(loaded, state);
+        // Then: both APIs observe the same parsed state and fingerprint.
+        // Note: save() auto-sets updated_at, so loaded.updated_at is Some(...).
+        assert_eq!(loaded.id, state.id);
+        assert_eq!(loaded.phase, state.phase);
+        assert!(loaded.updated_at.is_some());
         match inspected {
-            SessionFileContents::Parsed { state, fingerprint } => {
-                assert_eq!(*state, loaded);
+            SessionFileContents::Parsed {
+                state: inspected_state,
+                fingerprint,
+            } => {
+                assert_eq!(*inspected_state, loaded);
                 assert_eq!(fingerprint, load_fingerprint);
             }
             other => panic!("expected parsed contents, got {other:?}"),

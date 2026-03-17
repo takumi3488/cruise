@@ -12,6 +12,9 @@ pub struct AppState {
     /// Oneshot sender slot shared with [`crate::gui_option_handler::GuiOptionHandler`].
     /// Populated by `select_option` and consumed by `respond_to_option`.
     pub option_responder: Arc<Mutex<Option<oneshot::Sender<OptionResult>>>>,
+    /// Session ID of the currently running workflow.
+    /// Used to update `awaiting_input` when `respond_to_option` is called.
+    pub active_session_id: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -20,6 +23,7 @@ impl AppState {
         Self {
             cancel_token: Mutex::new(None),
             option_responder: Arc::new(Mutex::new(None)),
+            active_session_id: Mutex::new(None),
         }
     }
 }

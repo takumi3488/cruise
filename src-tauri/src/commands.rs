@@ -1,4 +1,6 @@
 use std::cell::Cell;
+use std::fs::OpenOptions;
+use std::io::Write as _;
 use std::sync::{Arc, Mutex};
 
 use cruise::cancellation::CancellationToken;
@@ -22,12 +24,15 @@ pub struct SessionDto {
     /// Error message when `phase == "Failed"`.
     pub phase_error: Option<String>,
     pub config_source: String,
+    pub base_dir: String,
     pub input: String,
     pub current_step: Option<String>,
     pub created_at: String,
     pub completed_at: Option<String>,
     pub worktree_branch: Option<String>,
     pub pr_url: Option<String>,
+    pub updated_at: Option<String>,
+    pub awaiting_input: bool,
 }
 
 impl From<cruise::session::SessionState> for SessionDto {
@@ -41,12 +46,15 @@ impl From<cruise::session::SessionState> for SessionDto {
             phase: phase_label,
             phase_error,
             config_source: s.config_source,
+            base_dir: s.base_dir.to_string_lossy().into_owned(),
             input: s.input,
             current_step: s.current_step,
             created_at: s.created_at,
             completed_at: s.completed_at,
             worktree_branch: s.worktree_branch,
             pr_url: s.pr_url,
+            updated_at: s.updated_at,
+            awaiting_input: s.awaiting_input,
         }
     }
 }
@@ -67,6 +75,35 @@ pub struct CleanupResultDto {
 pub struct OptionResultDto {
     pub next_step: Option<String>,
     pub text_input: Option<String>,
+}
+
+// ─── StateSavingEmitter ────────────────────────────────────────────────────────
+
+/// Wraps the Tauri IPC channel and intercepts `OptionRequired` events to update
+/// the session's `awaiting_input` field in `state.json`.
+struct StateSavingEmitter {
+    inner: tauri::ipc::Channel<WorkflowEvent>,
+    session_id: String,
+}
+
+impl StateSavingEmitter {
+    fn new(inner: tauri::ipc::Channel<WorkflowEvent>, session_id: String) -> Self {
+        Self { inner, session_id }
+    }
+}
+
+impl crate::gui_option_handler::EventEmitter for StateSavingEmitter {
+    fn emit(&self, event: WorkflowEvent) {
+        if matches!(&event, WorkflowEvent::OptionRequired { .. }) {
+            if let Ok(manager) = new_session_manager() {
+                if let Ok(mut state) = manager.load(&self.session_id) {
+                    state.awaiting_input = true;
+                    let _ = manager.save(&state);
+                }
+            }
+        }
+        let _ = self.inner.send(event);
+    }
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -113,7 +150,7 @@ pub fn get_session_plan(session_id: String) -> std::result::Result<String, Strin
 /// Cancel the currently running workflow session.
 #[tauri::command]
 pub fn cancel_session(state: tauri::State<'_, AppState>) -> std::result::Result<(), String> {
-    do_cancel_session(&state.cancel_token)
+    do_cancel_session(&state.cancel_token, &state.option_responder)
 }
 
 /// Deliver the frontend's option-step response to the engine.
@@ -122,6 +159,23 @@ pub fn respond_to_option(
     result: OptionResultDto,
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<(), String> {
+    // Clear awaiting_input on the active session before unblocking the engine.
+    let session_id = {
+        let guard = state
+            .active_session_id
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?;
+        guard.clone()
+    };
+    if let Some(id) = session_id {
+        if let Ok(manager) = new_session_manager() {
+            if let Ok(mut s) = manager.load(&id) {
+                s.awaiting_input = false;
+                let _ = manager.save(&s);
+            }
+        }
+    }
+
     let option_result = OptionResult {
         next_step: result.next_step,
         text_input: result.text_input,
@@ -140,6 +194,44 @@ pub fn clean_sessions() -> std::result::Result<CleanupResultDto, String> {
             skipped: r.skipped,
         })
         .map_err(|e| e.to_string())
+}
+
+/// Return the run log for a session as a plain-text string.
+///
+/// Returns an empty string when no log file exists yet (session never run).
+#[tauri::command]
+pub fn get_session_log(session_id: String) -> std::result::Result<String, String> {
+    let manager = new_session_manager()?;
+    let log_path = manager.log_path(&session_id);
+    match std::fs::read_to_string(&log_path) {
+        Ok(content) => Ok(content),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(format!("failed to read log {}: {}", log_path.display(), e)),
+    }
+}
+
+// ─── SessionLogger ─────────────────────────────────────────────────────────────
+
+/// Appends timestamped log lines to `<sessions_dir>/<session_id>/run.log`.
+struct SessionLogger {
+    path: std::path::PathBuf,
+}
+
+impl SessionLogger {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn write(&self, line: &str) {
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        {
+            let ts = current_iso8601();
+            let _ = writeln!(file, "[{ts}] {line}");
+        }
+    }
 }
 
 // ─── run_session ───────────────────────────────────────────────────────────────
@@ -200,6 +292,13 @@ pub async fn run_session(
             .map_err(|e| format!("lock poisoned: {e}"))?;
         *guard = Some(cancel_token.clone());
     }
+    {
+        let mut guard = state
+            .active_session_id
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?;
+        *guard = Some(session_id.clone());
+    }
 
     let option_responder = Arc::clone(&state.option_responder);
     let sessions_dir = manager.sessions_dir();
@@ -211,14 +310,19 @@ pub async fn run_session(
         .unwrap_or_else(|| session.base_dir.clone());
     let token_for_task = cancel_token.clone();
     let channel_for_step = channel.clone();
-    let channel_for_handler = Arc::new(channel.clone());
+    let channel_for_emitter = channel.clone();
     let sid_for_spawn = session_id.clone();
+    let sid_for_emitter = session_id.clone();
+    let log_path = manager.log_path(&session_id);
 
     let exec_result = tokio::task::spawn_blocking(
         move || -> cruise::error::Result<cruise::engine::ExecutionResult> {
             use cruise::engine::{ExecutionContext, execute_steps};
             use cruise::file_tracker::FileTracker;
             use cruise::variable::VariableStore;
+
+            let logger = SessionLogger::new(log_path);
+            logger.write("--- run started ---");
 
             // Temporarily change the working directory for command steps.
             let original_dir = std::env::current_dir().ok();
@@ -231,6 +335,7 @@ pub async fn run_session(
             let on_step_start = |step: &str| -> cruise::error::Result<()> {
                 let index = step_counter.get();
                 step_counter.set(index + 1);
+                logger.write(&format!("[{}/{}] {}", index + 1, total_steps, step));
                 let _ = channel_for_step.send(WorkflowEvent::StepStarted {
                     step: step.to_string(),
                     index,
@@ -239,8 +344,11 @@ pub async fn run_session(
                 Ok(())
             };
 
-            let handler =
-                GuiOptionHandler::new(channel_for_handler, sid_for_spawn, option_responder);
+            let emitter = Arc::new(StateSavingEmitter::new(
+                channel_for_emitter,
+                sid_for_emitter,
+            ));
+            let handler = GuiOptionHandler::new(emitter, sid_for_spawn, option_responder);
 
             let mut vars = VariableStore::new(input);
             vars.set_named_file("plan", plan_path);
@@ -259,6 +367,17 @@ pub async fn run_session(
             let handle = tokio::runtime::Handle::current();
             let result = handle.block_on(execute_steps(&ctx, &mut vars, &mut tracker, &start_step));
 
+            match &result {
+                Ok(exec) => logger.write(&format!(
+                    "✓ completed — run: {}, skipped: {}, failed: {}",
+                    exec.run, exec.skipped, exec.failed
+                )),
+                Err(cruise::error::CruiseError::Interrupted) => {
+                    logger.write("⏸ cancelled");
+                }
+                Err(e) => logger.write(&format!("✗ failed: {e}")),
+            }
+
             if let Some(dir) = original_dir {
                 let _ = std::env::set_current_dir(dir);
             }
@@ -269,7 +388,7 @@ pub async fn run_session(
     .await
     .map_err(|e| format!("execution task panicked: {e}"))?;
 
-    // Clear the cancel token slot.
+    // Clear the cancel token and active session slots.
     {
         let mut guard = state
             .cancel_token
@@ -277,9 +396,17 @@ pub async fn run_session(
             .map_err(|e| format!("lock poisoned: {e}"))?;
         *guard = None;
     }
+    {
+        let mut guard = state
+            .active_session_id
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?;
+        *guard = None;
+    }
 
     // Reload session to pick up any intermediate saves, then apply the final phase.
     let mut final_session = manager.load(&session_id).unwrap_or(session);
+    final_session.awaiting_input = false;
 
     match exec_result {
         Ok(exec) => {
@@ -315,12 +442,15 @@ pub async fn run_session(
 /// Extracted from the Tauri command handler for testability.
 /// Calls `cancel()` on the active token if one is present; succeeds silently if not.
 /// The token is removed from the slot after cancellation to free the underlying `Arc`.
+/// Also drops any pending option-step sender so that `blocking_recv()` in
+/// `GuiOptionHandler::select_option` returns immediately with `CruiseError::Interrupted`.
 ///
 /// # Errors
 ///
-/// Returns an error string if the mutex is poisoned.
+/// Returns an error string if either mutex is poisoned.
 pub fn do_cancel_session(
     cancel_token: &Mutex<Option<CancellationToken>>,
+    option_responder: &Arc<Mutex<Option<oneshot::Sender<OptionResult>>>>,
 ) -> std::result::Result<(), String> {
     let mut guard = cancel_token
         .lock()
@@ -328,6 +458,11 @@ pub fn do_cancel_session(
     if let Some(token) = guard.take() {
         token.cancel();
     }
+    // Drop pending option sender so blocking_recv() in select_option unblocks immediately.
+    let mut opt_guard = option_responder
+        .lock()
+        .map_err(|e| format!("lock poisoned: {e}"))?;
+    let _ = opt_guard.take();
     Ok(())
 }
 
@@ -374,12 +509,16 @@ mod tests {
 
     // ─── cancel_session ──────────────────────────────────────────────────────
 
+    fn empty_option_responder() -> Arc<Mutex<Option<oneshot::Sender<OptionResult>>>> {
+        Arc::new(Mutex::new(None))
+    }
+
     #[test]
     fn test_cancel_session_with_no_active_token_succeeds() {
         // Given: no active cancellation token in state
         let cancel_token: Mutex<Option<CancellationToken>> = Mutex::new(None);
         // When: cancel is requested
-        let result = do_cancel_session(&cancel_token);
+        let result = do_cancel_session(&cancel_token, &empty_option_responder());
         // Then: succeeds without error
         assert!(result.is_ok());
     }
@@ -391,7 +530,7 @@ mod tests {
         let token_for_assert = token.clone();
         let cancel_token: Mutex<Option<CancellationToken>> = Mutex::new(Some(token));
         // When: cancel is requested
-        let result = do_cancel_session(&cancel_token);
+        let result = do_cancel_session(&cancel_token, &empty_option_responder());
         // Then: succeeds and the token reports cancelled
         assert!(result.is_ok());
         assert!(token_for_assert.is_cancelled());
@@ -403,13 +542,30 @@ mod tests {
         let token = CancellationToken::new();
         let cancel_token: Mutex<Option<CancellationToken>> = Mutex::new(Some(token));
         // When: cancel is requested
-        let _ = do_cancel_session(&cancel_token);
+        let _ = do_cancel_session(&cancel_token, &empty_option_responder());
         // Then: the token slot is cleared (frees the Arc)
         assert!(
             cancel_token
                 .lock()
                 .unwrap_or_else(|e| panic!("{e}"))
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn test_cancel_session_drops_pending_option_sender() {
+        // Given: a pending option sender in the responder slot
+        let (tx, rx) = oneshot::channel::<OptionResult>();
+        let option_responder: Arc<Mutex<Option<oneshot::Sender<OptionResult>>>> =
+            Arc::new(Mutex::new(Some(tx)));
+        let cancel_token: Mutex<Option<CancellationToken>> = Mutex::new(None);
+        // When: cancel is requested
+        let result = do_cancel_session(&cancel_token, &option_responder);
+        // Then: succeeds and the receiver observes the sender was dropped
+        assert!(result.is_ok());
+        assert!(
+            rx.blocking_recv().is_err(),
+            "sender should have been dropped"
         );
     }
 
