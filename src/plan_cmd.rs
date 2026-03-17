@@ -257,6 +257,7 @@ async fn run_approve_loop(
 /// the interactive approve loop.  The caller is responsible for creating
 /// the session and wiring up the `VariableStore` (including setting `plan`
 /// to the session's `plan_path`).
+#[expect(dead_code, reason = "Used by Tauri GUI backend")]
 pub async fn generate_plan(
     config: &crate::config::WorkflowConfig,
     vars: &mut crate::variable::VariableStore,

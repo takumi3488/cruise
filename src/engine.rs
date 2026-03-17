@@ -504,6 +504,7 @@ pub(crate) fn format_duration(d: std::time::Duration) -> String {
 }
 
 /// Resolve the `{model}` placeholder in a command, or strip `--model {model}` if no model.
+#[must_use]
 pub fn resolve_command_with_model(
     command: &[String],
     effective_model: Option<&str>,

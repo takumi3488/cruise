@@ -202,7 +202,7 @@ fn format_session_date(id: &str) -> String {
     format!("{month}/{day} {hour}:{min}")
 }
 
-/// Returns " [step_name]" for Running/Suspended, or " PR#N" for Completed with PR URL.
+/// Returns " \[`step_name`\]" for Running/Suspended, or " PR#N" for Completed with PR URL.
 fn format_suffix(s: &SessionState) -> String {
     match &s.phase {
         SessionPhase::Running | SessionPhase::Suspended => s
