@@ -23,31 +23,12 @@ pub async fn run(args: PlanArgs) -> Result<()> {
     let (yaml, source) = crate::resolver::resolve_config(args.config.as_deref())?;
     eprintln!("{}", style(source.display_string()).dim());
 
-    // Resolve input: CLI arg, or read from stdin if piped.
     // noninteractive is true whenever stdin is not a terminal (pipe, redirect,
     // or backward-compat path where cli.rs already consumed stdin and placed
     // the content in args.input).  This prevents inquire from attempting to
     // read interactive input from a non-TTY file descriptor.
     let noninteractive = !std::io::stdin().is_terminal();
-    let stdin_input = if args.input.is_none() && noninteractive {
-        use std::io::Read;
-        let mut s = String::new();
-        std::io::stdin()
-            .read_to_string(&mut s)
-            .map_err(CruiseError::IoError)?;
-        Some(s)
-    } else {
-        None
-    };
-    let input = resolve_input(args.input, stdin_input, || {
-        if noninteractive {
-            return Err(CruiseError::Other(
-                "no input provided: stdin is not a terminal and no --input flag was given"
-                    .to_string(),
-            ));
-        }
-        prompt_for_plan_input()
-    })?;
+    let input = read_plan_input(args.input, noninteractive)?;
 
     if args.dry_run {
         eprintln!(
@@ -139,6 +120,29 @@ pub async fn run(args: PlanArgs) -> Result<()> {
         noninteractive,
     )
     .await
+}
+
+/// Read task input from CLI arg, piped stdin, or interactive prompt.
+fn read_plan_input(input: Option<String>, noninteractive: bool) -> Result<String> {
+    let stdin_input = if input.is_none() && noninteractive {
+        use std::io::Read;
+        let mut s = String::new();
+        std::io::stdin()
+            .read_to_string(&mut s)
+            .map_err(CruiseError::IoError)?;
+        Some(s)
+    } else {
+        None
+    };
+    resolve_input(input, stdin_input, || {
+        if noninteractive {
+            return Err(CruiseError::Other(
+                "no input provided: stdin is not a terminal and no --input flag was given"
+                    .to_string(),
+            ));
+        }
+        prompt_for_plan_input()
+    })
 }
 
 /// Interactive approve-plan loop: show plan, let user approve/fix/ask/execute.
