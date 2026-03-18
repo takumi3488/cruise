@@ -12,6 +12,7 @@ import {
   getSessionLog,
   listConfigs,
   listSessions,
+  resetSession,
   respondToOption,
   runSession,
 } from "./lib/commands";
@@ -261,6 +262,7 @@ function OptionDialog({ choices, plan, onRespond }: OptionDialogProps) {
 
 interface WorkflowRunnerProps {
   session: Session;
+  onSessionUpdated: (session: Session) => void;
 }
 
 interface StepEntry {
@@ -277,7 +279,7 @@ interface PendingOption {
 
 type RunStatus = "idle" | "running" | "completed" | "failed" | "cancelled";
 
-function WorkflowRunner({ session }: WorkflowRunnerProps) {
+function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
   const [status, setStatus] = useState<RunStatus>("idle");
   const [currentStep, setCurrentStep] = useState<StepEntry | null>(null);
   const [liveLog, setLiveLog] = useState<string[]>([]);
@@ -380,6 +382,18 @@ function WorkflowRunner({ session }: WorkflowRunnerProps) {
     }
   }
 
+  async function handleReset() {
+    try {
+      const updated = await resetSession(session.id);
+      onSessionUpdated(updated);
+      setStatus("idle");
+      setCurrentStep(null);
+      setLiveLog([]);
+    } catch (e) {
+      setLiveLog((prev) => [...prev, `Reset error: ${e}`]);
+    }
+  }
+
   async function handleOptionRespond(result: {
     nextStep?: string;
     textInput?: string;
@@ -405,6 +419,12 @@ function WorkflowRunner({ session }: WorkflowRunnerProps) {
     session.phase === "Running" ||
     session.phase === "Failed" ||
     session.phase === "Suspended";
+
+  const isResettable =
+    session.phase === "Running" ||
+    session.phase === "Suspended" ||
+    session.phase === "Failed" ||
+    session.phase === "Completed";
 
   // Decide which log content to show
   const showLive = status === "running" || (status !== "idle" && liveLog.length > 0);
@@ -449,6 +469,14 @@ function WorkflowRunner({ session }: WorkflowRunnerProps) {
               className="px-4 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700"
             >
               Cancel
+            </button>
+          )}
+          {isResettable && status !== "running" && (
+            <button
+              onClick={() => void handleReset()}
+              className="px-4 py-2 border border-gray-700 text-orange-400 rounded text-sm hover:bg-gray-800"
+            >
+              Reset to Planned
             </button>
           )}
         </div>
@@ -876,7 +904,13 @@ export default function App() {
             }}
           />
         ) : selectedSession ? (
-          <WorkflowRunner session={selectedSession} />
+          <WorkflowRunner
+            session={selectedSession}
+            onSessionUpdated={(updated) => {
+              setSelectedSession(updated);
+              sidebarRefreshRef.current?.();
+            }}
+          />
         ) : (
           <EmptyState />
         )}

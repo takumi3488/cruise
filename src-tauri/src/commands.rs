@@ -9,7 +9,7 @@ use cruise::step::option::OptionResult;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use crate::events::WorkflowEvent;
+use crate::events::{PlanEvent, WorkflowEvent};
 use crate::gui_option_handler::GuiOptionHandler;
 use crate::state::AppState;
 
@@ -57,6 +57,14 @@ impl From<cruise::session::SessionState> for SessionDto {
             awaiting_input: s.awaiting_input,
         }
     }
+}
+
+/// A directory entry returned by `list_directory`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirEntryDto {
+    pub name: String,
+    pub path: String,
 }
 
 /// Result of a cleanup operation, returned to the frontend.
@@ -111,6 +119,56 @@ impl crate::gui_option_handler::EventEmitter for StateSavingEmitter {
 fn new_session_manager() -> std::result::Result<SessionManager, String> {
     let cruise_home = get_cruise_home().map_err(|e| e.to_string())?;
     Ok(SessionManager::new(cruise_home))
+}
+
+// ─── Filesystem commands ───────────────────────────────────────────────────────
+
+/// List subdirectories of `path`, returning up to 50 entries sorted alphabetically.
+///
+/// `~` is expanded to `$HOME`. Hidden directories (`.`-prefixed) are excluded.
+/// Non-existent paths return an empty Vec rather than an error.
+#[tauri::command]
+pub fn list_directory(path: String) -> std::result::Result<Vec<DirEntryDto>, String> {
+    let expanded = if path.starts_with('~') {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{}{}", home, &path[1..])
+    } else {
+        path
+    };
+
+    let dir = std::path::Path::new(&expanded);
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let Ok(read_dir) = std::fs::read_dir(dir) else {
+        return Ok(vec![]);
+    };
+
+    let mut entries: Vec<DirEntryDto> = read_dir
+        .flatten()
+        .filter(|e| {
+            let ft = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if !ft {
+                return false;
+            }
+            let name = e.file_name();
+            let name_str = name.to_string_lossy();
+            !name_str.starts_with('.')
+        })
+        .map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let full_path = e.path().to_string_lossy().into_owned();
+            DirEntryDto {
+                name,
+                path: full_path,
+            }
+        })
+        .collect();
+
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries.truncate(50);
+    Ok(entries)
 }
 
 // ─── Read commands ─────────────────────────────────────────────────────────────
@@ -207,6 +265,218 @@ pub fn get_session_log(session_id: String) -> std::result::Result<String, String
         Ok(content) => Ok(content),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(e) => Err(format!("failed to read log {}: {}", log_path.display(), e)),
+    }
+}
+
+// ─── Plan generation helpers ───────────────────────────────────────────────────
+
+/// Plan generation prompt templates, embedded at compile-time.
+const PLAN_PROMPT_TEMPLATE: &str = include_str!("../../prompts/plan.md");
+const FIX_PLAN_PROMPT_TEMPLATE: &str = include_str!("../../prompts/fix-plan.md");
+const PLAN_VAR: &str = "plan";
+
+/// Invoke the LLM to generate/fix a plan using `template`, writing output to the
+/// path stored in `vars` under the `"plan"` variable.
+async fn run_plan_prompt_template(
+    config: &cruise::config::WorkflowConfig,
+    vars: &mut cruise::variable::VariableStore,
+    template: &str,
+    rate_limit_retries: usize,
+) -> std::result::Result<(), String> {
+    let plan_model = config.plan_model.clone().or_else(|| config.model.clone());
+    let prompt = vars
+        .resolve(template)
+        .map_err(|e: cruise::error::CruiseError| e.to_string())?;
+    let effective_model = plan_model.as_deref().or(config.model.as_deref());
+    let has_placeholder = config.command.iter().any(|s| s.contains("{model}"));
+    let (resolved_command, model_arg) = if has_placeholder {
+        (
+            cruise::engine::resolve_command_with_model(&config.command, effective_model),
+            None,
+        )
+    } else {
+        (config.command.clone(), effective_model.map(str::to_string))
+    };
+    cruise::step::prompt::run_prompt(
+        &resolved_command,
+        model_arg.as_deref(),
+        &prompt,
+        rate_limit_retries,
+        &std::collections::HashMap::new(),
+        None::<&fn(&str)>,
+        None,
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+// ─── Session creation commands ─────────────────────────────────────────────────
+
+/// A discovered workflow config file, returned to the frontend.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigEntryDto {
+    pub path: String,
+    pub name: String,
+}
+
+/// List available workflow config files in `~/.cruise/` (excluding sessions/ and worktrees/).
+#[tauri::command]
+pub fn list_configs() -> std::result::Result<Vec<ConfigEntryDto>, String> {
+    let cruise_home = get_cruise_home().map_err(|e| e.to_string())?;
+    let Ok(entries) = std::fs::read_dir(&cruise_home) else {
+        return Ok(vec![]);
+    };
+    let mut configs: Vec<ConfigEntryDto> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            if p.is_dir() {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "sessions" || name == "worktrees" {
+                    return false;
+                }
+            }
+            p.is_file() && matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"))
+        })
+        .map(|p| ConfigEntryDto {
+            name: p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            path: p.to_string_lossy().into_owned(),
+        })
+        .collect();
+    configs.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(configs)
+}
+
+/// Create a new session and generate a plan, streaming [`PlanEvent`]s over `channel`.
+///
+/// Returns the new session ID on success.  The session is left in "Awaiting Approval"
+/// phase so the frontend can show the plan and let the user approve or discard it.
+#[tauri::command]
+pub async fn create_session(
+    input: String,
+    config_path: Option<String>,
+    base_dir: String,
+    channel: tauri::ipc::Channel<PlanEvent>,
+) -> std::result::Result<String, String> {
+    use cruise::config::{WorkflowConfig, validate_config};
+    use cruise::resolver::resolve_config;
+    use cruise::session::{SessionManager, SessionState};
+    use cruise::variable::VariableStore;
+
+    let (yaml, source) = resolve_config(config_path.as_deref()).map_err(|e| e.to_string())?;
+    let config =
+        WorkflowConfig::from_yaml(&yaml).map_err(|e| format!("config parse error: {e}"))?;
+    validate_config(&config).map_err(|e| e.to_string())?;
+
+    let manager = new_session_manager()?;
+    let session_id = SessionManager::new_session_id();
+    let base = std::path::PathBuf::from(&base_dir);
+    let mut session = SessionState::new(
+        session_id.clone(),
+        base,
+        source.display_string(),
+        input.trim().to_string(),
+    );
+    session.config_path = source.path().cloned();
+    manager.create(&session).map_err(|e| e.to_string())?;
+
+    let session_dir = manager.sessions_dir().join(&session_id);
+    std::fs::write(session_dir.join("config.yaml"), &yaml).map_err(|e| e.to_string())?;
+
+    let plan_path = session.plan_path(&manager.sessions_dir());
+    let mut vars = VariableStore::new(session.input.clone());
+    vars.set_named_file(PLAN_VAR, plan_path.clone());
+
+    let _ = channel.send(PlanEvent::PlanGenerating);
+
+    match run_plan_prompt_template(&config, &mut vars, PLAN_PROMPT_TEMPLATE, 5).await {
+        Ok(()) => {
+            let content = std::fs::read_to_string(&plan_path).map_err(|e| e.to_string())?;
+            if content.trim().is_empty() {
+                let _ = manager.delete(&session_id);
+                let msg = "generated plan is empty".to_string();
+                let _ = channel.send(PlanEvent::PlanFailed { error: msg.clone() });
+                return Err(msg);
+            }
+            let _ = channel.send(PlanEvent::PlanGenerated {
+                content: content.clone(),
+            });
+            Ok(session_id)
+        }
+        Err(msg) => {
+            let _ = manager.delete(&session_id);
+            let _ = channel.send(PlanEvent::PlanFailed { error: msg.clone() });
+            Err(msg)
+        }
+    }
+}
+
+/// Approve a session, transitioning it from "Awaiting Approval" to "Planned".
+#[tauri::command]
+pub fn approve_session(session_id: String) -> std::result::Result<(), String> {
+    let manager = new_session_manager()?;
+    let mut session = manager.load(&session_id).map_err(|e| e.to_string())?;
+    session.approve();
+    manager.save(&session).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Reset a session to "Planned" phase regardless of its current phase.
+#[tauri::command]
+pub fn reset_session(session_id: String) -> std::result::Result<SessionDto, String> {
+    let manager = new_session_manager()?;
+    let mut session = manager.load(&session_id).map_err(|e| e.to_string())?;
+    session.reset_to_planned();
+    manager.save(&session).map_err(|e| e.to_string())?;
+    Ok(SessionDto::from(session))
+}
+
+/// Delete a session that is still in "Awaiting Approval" phase (discard).
+#[tauri::command]
+pub fn discard_session(session_id: String) -> std::result::Result<(), String> {
+    let manager = new_session_manager()?;
+    manager.delete(&session_id).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Re-generate the plan for an existing session, streaming [`PlanEvent`]s over `channel`.
+///
+/// Returns the updated plan markdown on success.
+#[tauri::command]
+pub async fn fix_session(
+    session_id: String,
+    feedback: String,
+    channel: tauri::ipc::Channel<PlanEvent>,
+) -> std::result::Result<String, String> {
+    let manager = new_session_manager()?;
+    let session = manager.load(&session_id).map_err(|e| e.to_string())?;
+
+    let _ = channel.send(PlanEvent::PlanGenerating);
+
+    let config = manager.load_config(&session).map_err(|e| e.to_string())?;
+    let plan_path = session.plan_path(&manager.sessions_dir());
+    let mut vars = cruise::variable::VariableStore::new(session.input.clone());
+    vars.set_named_file(PLAN_VAR, plan_path.clone());
+    vars.set_prev_input(Some(feedback));
+
+    match run_plan_prompt_template(&config, &mut vars, FIX_PLAN_PROMPT_TEMPLATE, 5).await {
+        Ok(()) => {
+            let content = std::fs::read_to_string(&plan_path).map_err(|e| e.to_string())?;
+            let _ = channel.send(PlanEvent::PlanGenerated {
+                content: content.clone(),
+            });
+            Ok(content)
+        }
+        Err(msg) => {
+            let _ = channel.send(PlanEvent::PlanFailed { error: msg.clone() });
+            Err(msg)
+        }
     }
 }
 
@@ -431,7 +701,8 @@ pub async fn run_session(
             final_session.phase = SessionPhase::Failed(msg.clone());
             final_session.completed_at = Some(current_iso8601());
             let _ = channel.send(WorkflowEvent::WorkflowFailed { error: msg.clone() });
-            manager.save(&final_session).map_err(|e2| e2.to_string())?;
+            // Ignore save errors so the original workflow error is preserved.
+            let _ = manager.save(&final_session);
             Err(msg)
         }
     }

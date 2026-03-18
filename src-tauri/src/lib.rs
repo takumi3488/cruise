@@ -6,6 +6,8 @@ pub mod state;
 /// Tauri application entry point.
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::list_sessions,
@@ -16,6 +18,13 @@ pub fn run() {
             commands::cancel_session,
             commands::respond_to_option,
             commands::clean_sessions,
+            commands::list_configs,
+            commands::create_session,
+            commands::approve_session,
+            commands::discard_session,
+            commands::reset_session,
+            commands::fix_session,
+            commands::list_directory,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

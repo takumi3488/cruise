@@ -1,6 +1,9 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   CleanupResult,
+  ConfigEntry,
+  DirEntry,
+  PlanEvent,
   Session,
   WorkflowEvent,
 } from "../types";
@@ -58,7 +61,70 @@ export function cleanSessions(): Promise<CleanupResult> {
   return invoke<CleanupResult>("clean_sessions");
 }
 
+/** Reset a session to "Planned" phase regardless of its current phase. */
+export function resetSession(sessionId: string): Promise<Session> {
+  return invoke<Session>("reset_session", { sessionId });
+}
+
 /** Return the run log for a session as plain text. Empty string if not yet run. */
 export function getSessionLog(sessionId: string): Promise<string> {
   return invoke<string>("get_session_log", { sessionId });
+}
+
+// ─── Filesystem ───────────────────────────────────────────────────────────────
+
+/** List subdirectories of `path`. `~` is expanded server-side. Returns up to 50 entries. */
+export function listDirectory(path: string): Promise<DirEntry[]> {
+  return invoke<DirEntry[]>("list_directory", { path });
+}
+
+// ─── Session creation ─────────────────────────────────────────────────────────
+
+/** List workflow config files in ~/.cruise/. */
+export function listConfigs(): Promise<ConfigEntry[]> {
+  return invoke<ConfigEntry[]>("list_configs");
+}
+
+/**
+ * Create a new session and generate a plan, streaming PlanEvents via `channel`.
+ *
+ * @returns The new session ID.
+ */
+export function createSession(
+  params: { input: string; configPath?: string; baseDir: string },
+  channel: Channel<PlanEvent>
+): Promise<string> {
+  return invoke<string>("create_session", {
+    input: params.input,
+    configPath: params.configPath ?? null,
+    baseDir: params.baseDir,
+    channel,
+  });
+}
+
+/** Approve a session (Awaiting Approval → Planned). */
+export function approveSession(sessionId: string): Promise<void> {
+  return invoke<void>("approve_session", { sessionId });
+}
+
+/** Delete a session that is still awaiting approval. */
+export function discardSession(sessionId: string): Promise<void> {
+  return invoke<void>("discard_session", { sessionId });
+}
+
+/**
+ * Re-generate the plan for an existing session with the given feedback,
+ * streaming PlanEvents via `channel`.
+ *
+ * @returns The updated plan markdown.
+ */
+export function fixSession(
+  params: { sessionId: string; feedback: string },
+  channel: Channel<PlanEvent>
+): Promise<string> {
+  return invoke<string>("fix_session", {
+    sessionId: params.sessionId,
+    feedback: params.feedback,
+    channel,
+  });
 }
