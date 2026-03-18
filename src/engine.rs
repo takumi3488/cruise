@@ -415,9 +415,15 @@ async fn execute_step_kind(
 ) -> Result<Option<String>> {
     match kind {
         StepKind::Prompt(step) => {
-            let output =
-                run_prompt_step(vars, ctx.compiled, step, ctx.rate_limit_retries, merged_env)
-                    .await?;
+            let output = run_prompt_step(
+                vars,
+                ctx.compiled,
+                step,
+                ctx.rate_limit_retries,
+                merged_env,
+                ctx.cancel_token,
+            )
+            .await?;
             let elapsed = step_start.elapsed();
             if !output.is_empty() {
                 eprint!("{output}");
@@ -547,6 +553,7 @@ pub(crate) async fn run_prompt_step(
     step: &PromptStep,
     rate_limit_retries: usize,
     env: &HashMap<String, String>,
+    cancel_token: Option<&CancellationToken>,
 ) -> Result<String> {
     if let Some(inst) = &step.instruction {
         let resolved = vars.resolve(inst)?;
@@ -591,6 +598,7 @@ pub(crate) async fn run_prompt_step(
             rate_limit_retries,
             env,
             Some(&on_retry),
+            cancel_token,
         )
         .await
     };

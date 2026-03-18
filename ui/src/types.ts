@@ -76,3 +76,22 @@ export interface CleanupResult {
   deleted: number;
   skipped: number;
 }
+
+// ─── Directory listing ────────────────────────────────────────────────────────
+
+export interface DirEntry {
+  name: string;
+  path: string;
+}
+
+// ─── Session creation ─────────────────────────────────────────────────────────
+
+export interface ConfigEntry {
+  path: string;
+  name: string;
+}
+
+export type PlanEvent =
+  | { event: "planGenerating"; data: Record<string, never> }
+  | { event: "planGenerated"; data: { content: string } }
+  | { event: "planFailed"; data: { error: string } };

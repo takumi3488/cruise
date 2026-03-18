@@ -37,6 +37,18 @@ impl CancellationToken {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
+
+    /// Returns a future that resolves once the token has been cancelled.
+    ///
+    /// Polls every 50 ms. Acceptable latency for interactive cancellation of long-running LLM calls.
+    pub async fn cancelled(&self) {
+        loop {
+            if self.is_cancelled() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
 }
 
 #[cfg(test)]

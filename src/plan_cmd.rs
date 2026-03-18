@@ -121,6 +121,7 @@ pub async fn run(args: PlanArgs) -> Result<()> {
             args.rate_limit_retries,
             &env,
             Some(&on_retry),
+            None,
         )
         .await
     };
@@ -338,7 +339,7 @@ async fn run_plan_prompt(
     let env = std::collections::HashMap::new();
     eprintln!("\n{} {}", style("▶").cyan().bold(), style(label).bold());
     let compiled = crate::workflow::compile(config.clone())?;
-    run_prompt_step(vars, &compiled, &step, rate_limit_retries, &env).await?;
+    run_prompt_step(vars, &compiled, &step, rate_limit_retries, &env, None).await?;
     Ok(())
 }
 

@@ -539,6 +539,7 @@ async fn generate_pr_description(
             rate_limit_retries,
             &env,
             Some(&on_retry),
+            None,
         )
         .await
         {

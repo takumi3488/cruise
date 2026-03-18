@@ -1,5 +1,20 @@
 use serde::Serialize;
 
+/// Events streamed during session creation (plan generation) over an IPC Channel.
+///
+/// Uses the same adjacently-tagged format as [`WorkflowEvent`]:
+/// `{ "event": "<variantName>", "data": { ... } }`
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+pub enum PlanEvent {
+    /// Plan generation has started.
+    PlanGenerating,
+    /// Plan was generated successfully; `content` is the markdown text.
+    PlanGenerated { content: String },
+    /// Plan generation failed; `error` contains the error message.
+    PlanFailed { error: String },
+}
+
 /// A single choice in an option step, serialized for IPC transport to the frontend.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
