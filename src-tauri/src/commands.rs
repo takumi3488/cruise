@@ -467,6 +467,9 @@ pub async fn fix_session(
 
     match run_plan_prompt_template(&config, &mut vars, FIX_PLAN_PROMPT_TEMPLATE, 5).await {
         Ok(()) => {
+            // Re-save to update updated_at timestamp
+            manager.save(&session).map_err(|e| e.to_string())?;
+
             let content = std::fs::read_to_string(&plan_path).map_err(|e| e.to_string())?;
             let _ = channel.send(PlanEvent::PlanGenerated {
                 content: content.clone(),

@@ -212,17 +212,17 @@ function OptionDialog({ choices, plan, onRespond }: OptionDialogProps) {
           </div>
         )}
         <div className="space-y-2">
-          {choices.map((choice) =>
+          {choices.map((choice, index) =>
             choice.kind === "selector" ? (
               <button
-                key={choice.label}
+                key={index}
                 onClick={() => onRespond({ nextStep: choice.next ?? undefined })}
                 className="w-full text-left px-4 py-2 border border-gray-700 rounded hover:bg-gray-800 text-sm text-gray-200 transition-colors"
               >
                 {choice.label}
               </button>
             ) : (
-              <div key={choice.label} className="space-y-1">
+              <div key={index} className="space-y-1">
                 <label className="text-sm text-gray-400">{choice.label}</label>
                 <div className="flex gap-2">
                   <input
@@ -297,6 +297,8 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
   const [planLoading, setPlanLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>("info");
   const [pendingOption, setPendingOption] = useState<PendingOption | null>(null);
+  const [replanFeedback, setReplanFeedback] = useState("");
+  const [replanPhase, setReplanPhase] = useState<"idle" | "editing" | "generating">("idle");
   const _channelRef = useRef<Channel<WorkflowEvent> | null>(null);
   const logEndRef = useRef<HTMLSpanElement | null>(null);
 
@@ -336,6 +338,8 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
     setPendingOption(null);
     setActiveTab("info");
     setLogLoading(false);
+    setReplanFeedback("");
+    setReplanPhase("idle");
     _channelRef.current = null;
   }, [session.id]);
 
@@ -430,6 +434,32 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
     }
   }
 
+  async function handleReplan() {
+    const trimmed = replanFeedback.trim();
+    if (!trimmed) return;
+    setReplanPhase("generating");
+
+    const channel = new Channel<PlanEvent>();
+    channel.onmessage = (event) => {
+      if (event.event === "planGenerated") {
+        setPlanContent(event.data.content);
+        setReplanPhase("idle");
+        setReplanFeedback("");
+        setActiveTab("plan");
+      } else if (event.event === "planFailed") {
+        setLiveLog((prev) => [...prev, `Replan failed: ${event.data.error}`]);
+        setReplanPhase("editing");
+      }
+    };
+
+    try {
+      await fixSession({ sessionId: session.id, feedback: trimmed }, channel);
+    } catch (e) {
+      setLiveLog((prev) => [...prev, `Replan error: ${e}`]);
+      setReplanPhase("editing");
+    }
+  }
+
   // Load saved log when switching to log tab (and not running)
   function handleTabChange(tab: ActiveTab) {
     setActiveTab(tab);
@@ -506,7 +536,53 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
               Reset to Planned
             </button>
           )}
+          {session.phase === "Planned" && status !== "running" && replanPhase !== "generating" && (
+            <button
+              onClick={() => setReplanPhase("editing")}
+              className="px-4 py-2 border border-gray-700 text-gray-300 rounded text-sm hover:bg-gray-800"
+            >
+              Replan
+            </button>
+          )}
         </div>
+
+        {/* Replan feedback */}
+        {replanPhase === "editing" && (
+          <div className="space-y-2">
+            <textarea
+              value={replanFeedback}
+              onChange={(e) => setReplanFeedback(e.target.value)}
+              rows={3}
+              autoFocus
+              placeholder="Describe the changes needed…"
+              className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-blue-500 outline-none resize-none"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleReplan();
+              }}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => void handleReplan()}
+                disabled={!replanFeedback.trim()}
+                className="px-4 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Apply
+              </button>
+              <button
+                onClick={() => { setReplanPhase("idle"); setReplanFeedback(""); }}
+                className="px-4 py-1.5 border border-gray-700 text-gray-400 rounded text-sm hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {replanPhase === "generating" && (
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <span className="inline-block w-3 h-3 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
+            Regenerating plan…
+          </div>
+        )}
 
         {/* Progress indicator */}
         {status === "running" && currentStep && (
