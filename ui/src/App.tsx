@@ -10,6 +10,7 @@ import {
   discardSession,
   fixSession,
   getSessionLog,
+  getSessionPlan,
   listConfigs,
   listSessions,
   resetSession,
@@ -17,6 +18,7 @@ import {
   runSession,
 } from "./lib/commands";
 import { DirectoryPicker } from "./components/DirectoryPicker";
+import { MarkdownViewer } from "./components/MarkdownViewer";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -197,12 +199,17 @@ function OptionDialog({ choices, plan, onRespond }: OptionDialogProps) {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-gray-900 rounded-lg shadow-xl border border-gray-700 p-6 max-w-lg w-full space-y-4">
-        <h2 className="text-lg font-semibold text-gray-100">Choose an option</h2>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="option-dialog-title"
+        className="bg-gray-900 rounded-lg shadow-xl border border-gray-700 p-6 max-w-lg w-full space-y-4"
+      >
+        <h2 id="option-dialog-title" className="text-lg font-semibold text-gray-100">Choose an option</h2>
         {plan && (
-          <pre className="text-xs bg-gray-800 border border-gray-700 rounded p-3 max-h-48 overflow-auto text-gray-300">
-            {plan}
-          </pre>
+          <div className="bg-gray-800 border border-gray-700 rounded overflow-auto max-h-48">
+            <MarkdownViewer content={plan} className="p-3" />
+          </div>
         )}
         <div className="space-y-2">
           {choices.map((choice) =>
@@ -278,6 +285,7 @@ interface PendingOption {
 }
 
 type RunStatus = "idle" | "running" | "completed" | "failed" | "cancelled";
+type ActiveTab = "info" | "plan" | "log";
 
 function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
   const [status, setStatus] = useState<RunStatus>("idle");
@@ -285,7 +293,9 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
   const [liveLog, setLiveLog] = useState<string[]>([]);
   const [savedLog, setSavedLog] = useState<string>("");
   const [logLoading, setLogLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"info" | "log">("info");
+  const [planContent, setPlanContent] = useState<string>("");
+  const [planLoading, setPlanLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("info");
   const [pendingOption, setPendingOption] = useState<PendingOption | null>(null);
   const _channelRef = useRef<Channel<WorkflowEvent> | null>(null);
   const logEndRef = useRef<HTMLSpanElement | null>(null);
@@ -303,12 +313,26 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
     }
   }, [session.id]);
 
+  // Load plan content from file when plan tab is opened
+  const loadPlan = useCallback(async () => {
+    setPlanLoading(true);
+    try {
+      const content = await getSessionPlan(session.id);
+      setPlanContent(content);
+    } catch (e) {
+      setPlanContent(`(failed to load plan: ${e})`);
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [session.id]);
+
   // Reset all state when the selected session changes
   useEffect(() => {
     setStatus("idle");
     setCurrentStep(null);
     setLiveLog([]);
     setSavedLog("");
+    setPlanContent("");
     setPendingOption(null);
     setActiveTab("info");
     setLogLoading(false);
@@ -407,10 +431,13 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
   }
 
   // Load saved log when switching to log tab (and not running)
-  function handleTabChange(tab: "info" | "log") {
+  function handleTabChange(tab: ActiveTab) {
     setActiveTab(tab);
     if (tab === "log" && status !== "running") {
       void loadSavedLog();
+    }
+    if (tab === "plan" && !planContent) {
+      void loadPlan();
     }
   }
 
@@ -503,6 +530,16 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
           Info
         </button>
         <button
+          onClick={() => handleTabChange("plan")}
+          className={`px-4 py-2 text-xs font-medium transition-colors ${
+            activeTab === "plan"
+              ? "text-blue-400 border-b-2 border-blue-500"
+              : "text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          Plan
+        </button>
+        <button
           onClick={() => handleTabChange("log")}
           className={`px-4 py-2 text-xs font-medium transition-colors ${
             activeTab === "log"
@@ -550,6 +587,18 @@ function WorkflowRunner({ session, onSessionUpdated }: WorkflowRunnerProps) {
                 <span className="text-gray-600 text-xs uppercase tracking-wide">Error</span>
                 <p className="text-red-400 mt-0.5 font-mono text-xs">{session.phaseError}</p>
               </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "plan" && (
+          <div className="h-full overflow-auto">
+            {planLoading ? (
+              <p className="p-4 text-xs text-gray-500">Loading plan…</p>
+            ) : planContent ? (
+              <MarkdownViewer content={planContent} className="p-6" />
+            ) : (
+              <p className="p-4 text-xs text-gray-600">No plan available.</p>
             )}
           </div>
         )}
@@ -713,12 +762,12 @@ function NewSessionForm({ onCreated }: NewSessionFormProps) {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-auto">
+    <div className="h-full flex flex-col">
       <div className="px-6 pt-6 pb-4 border-b border-gray-800">
         <h1 className="text-lg font-semibold text-gray-100">New Session</h1>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-5">
+      <div className={`flex-1 overflow-hidden p-6 ${planPhase === "generated" || planPhase === "fixing" ? "flex flex-col gap-4" : "overflow-auto space-y-5"}`}>
         {/* Error banner */}
         {error && (
           <div className="bg-red-900/40 border border-red-700 rounded px-4 py-3 text-sm text-red-300">
@@ -794,13 +843,11 @@ function NewSessionForm({ onCreated }: NewSessionFormProps) {
         {/* Plan review */}
         {(planPhase === "generated" || planPhase === "fixing") && (
           <>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500 uppercase tracking-wide">Generated Plan</span>
+            <div className="flex-1 flex flex-col min-h-0 gap-1.5">
+              <span className="text-xs text-gray-500 uppercase tracking-wide">Generated Plan</span>
+              <div className="flex-1 bg-gray-900 border border-gray-700 rounded overflow-auto min-h-0">
+                <MarkdownViewer content={planContent} className="p-4" />
               </div>
-              <pre className="bg-gray-900 border border-gray-700 rounded p-4 text-xs text-gray-300 font-mono whitespace-pre-wrap overflow-auto max-h-80">
-                {planContent}
-              </pre>
             </div>
 
             {/* Fix feedback */}

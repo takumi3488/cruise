@@ -52,7 +52,9 @@ impl<E: EventEmitter> GuiOptionHandler<E> {
 /// lets `GuiOptionHandler<Channel<WorkflowEvent>>` be constructed in Tauri command handlers.
 impl EventEmitter for tauri::ipc::Channel<crate::events::WorkflowEvent> {
     fn emit(&self, event: crate::events::WorkflowEvent) {
-        let _ = self.send(event);
+        if let Err(e) = self.send(event) {
+            eprintln!("[cruise] EventEmitter::emit failed: {e}");
+        }
     }
 }
 

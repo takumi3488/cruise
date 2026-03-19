@@ -766,14 +766,18 @@ mod tests {
     use super::*;
     use cruise::cancellation::CancellationToken;
 
-    /// Polls `pending` until a sender is available.
+    /// Polls `pending` until a sender is available, or panics after 5 seconds.
     fn wait_for_pending(pending: &Arc<Mutex<Option<oneshot::Sender<OptionResult>>>>) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             let guard = pending.lock().unwrap_or_else(|e| panic!("{e}"));
             if guard.is_some() {
                 return;
             }
             drop(guard);
+            if std::time::Instant::now() >= deadline {
+                panic!("wait_for_pending timed out after 5 seconds");
+            }
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
