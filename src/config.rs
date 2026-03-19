@@ -1444,7 +1444,7 @@ steps:
         // When: validate_if_conditions is called
         let config = WorkflowConfig::from_yaml(yaml).unwrap_or_else(|e| panic!("{e:?}"));
         let result = validate_if_conditions(&config);
-        // Then: no error — legacy field alone is accepted (backward compatibility)
+        // Then: no error -- legacy field alone is accepted (backward compatibility)
         assert!(
             result.is_ok(),
             "legacy fail-if-no-file-changes alone should pass validate_if_conditions, got: {result:?}"

@@ -76,7 +76,7 @@ pub struct CleanArgs {}
 pub fn parse_cli() -> Cli {
     let mut cli = Cli::parse();
 
-    // Backward compat: no subcommand + stdin pipe → read input from stdin.
+    // Backward compat: no subcommand + stdin pipe -> read input from stdin.
     if cli.command.is_none()
         && cli.input.is_none()
         && !std::io::IsTerminal::is_terminal(&std::io::stdin())

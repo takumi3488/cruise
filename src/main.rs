@@ -40,7 +40,7 @@ async fn run() -> error::Result<()> {
         Some(cli::Commands::List) => list_cmd::run().await,
         Some(cli::Commands::Clean(args)) => clean_cmd::run(args),
         None => {
-            // Backward compat: no subcommand → treat as `plan`.
+            // Backward compat: no subcommand -> treat as `plan`.
             let plan_args = cli::PlanArgs {
                 input: cli.input,
                 config: None,

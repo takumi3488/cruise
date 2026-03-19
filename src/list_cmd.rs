@@ -36,7 +36,7 @@ pub async fn run() -> Result<()> {
                     manager.save(&session)?;
                     eprintln!(
                         "{} Session {} approved. Run with: {}",
-                        style("✓").green(),
+                        style("[ok]").green(),
                         session.id,
                         style(format!("cruise run {}", session.id)).cyan()
                     );
@@ -72,10 +72,10 @@ pub async fn run() -> Result<()> {
                     })?;
                     match open_pr_in_browser(url) {
                         Ok(()) => {
-                            eprintln!("{} Opening PR in browser…", style("✓").green());
+                            eprintln!("{} Opening PR in browser...", style("[ok]").green());
                         }
                         Err(e) => {
-                            eprintln!("{} {e}", style("✗").red());
+                            eprintln!("{} {e}", style("[fail]").red());
                         }
                     }
                 }
@@ -84,17 +84,17 @@ pub async fn run() -> Result<()> {
                     manager.save(&session)?;
                     eprintln!(
                         "{} Session {} reset to Planned.",
-                        style("✓").green(),
+                        style("[ok]").green(),
                         session.id
                     );
                 }
                 "Delete" => {
                     manager.delete(&session.id)?;
-                    eprintln!("{} Session {} deleted.", style("✓").green(), session.id);
+                    eprintln!("{} Session {} deleted.", style("[ok]").green(), session.id);
                     break;
                 }
                 _ => {
-                    // "Back" — return to the session list.
+                    // "Back" -- return to the session list.
                     break;
                 }
             }
@@ -178,13 +178,13 @@ fn open_pr_in_browser(pr_url: &str) -> crate::error::Result<()> {
 fn format_session_label(s: &SessionState) -> String {
     let (icon, phase_str) = match &s.phase {
         SessionPhase::AwaitingApproval => {
-            (style("○").magenta(), style("Awaiting Approval").magenta())
+            (style("o").magenta(), style("Awaiting Approval").magenta())
         }
-        SessionPhase::Planned => (style("●").cyan(), style("Planned").cyan()),
-        SessionPhase::Running => (style("▶").yellow(), style("Running").yellow()),
-        SessionPhase::Completed => (style("✓").green(), style("Completed").green()),
-        SessionPhase::Failed(_) => (style("✗").red(), style("Failed").red()),
-        SessionPhase::Suspended => (style("⏸").yellow(), style("Suspended").yellow()),
+        SessionPhase::Planned => (style("*").cyan(), style("Planned").cyan()),
+        SessionPhase::Running => (style(">").yellow(), style("Running").yellow()),
+        SessionPhase::Completed => (style("[ok]").green(), style("Completed").green()),
+        SessionPhase::Failed(_) => (style("[fail]").red(), style("Failed").red()),
+        SessionPhase::Suspended => (style("||").yellow(), style("Suspended").yellow()),
     };
     let date = format_session_date(&s.id);
     let suffix = format_suffix(s);
@@ -192,7 +192,7 @@ fn format_session_label(s: &SessionState) -> String {
     format!("{icon} {date} {phase_str} {input_preview}{suffix}")
 }
 
-/// "`YYYYMMDDHHmmss`" → "MM/DD HH:MM"
+/// "`YYYYMMDDHHmmss`" -> "MM/DD HH:MM"
 fn format_session_date(id: &str) -> String {
     let (Some(month), Some(day), Some(hour), Some(min)) =
         (id.get(4..6), id.get(6..8), id.get(8..10), id.get(10..12))
@@ -571,7 +571,7 @@ mod tests {
         let label = strip(&format_session_label(&s));
 
         // Then: contains icon, date, phase, and input
-        assert!(label.contains('●'), "should contain ● icon: {label}");
+        assert!(label.contains('*'), "should contain * icon: {label}");
         assert!(
             label.contains("03/06 14:30"),
             "should contain date: {label}"
@@ -592,8 +592,8 @@ mod tests {
         // When
         let label = strip(&format_session_label(&s));
 
-        // Then: contains ▶ icon and step info
-        assert!(label.contains('▶'), "should contain ▶ icon: {label}");
+        // Then: contains > icon and step info
+        assert!(label.contains('>'), "should contain > icon: {label}");
         assert!(label.contains("Running"), "should contain Running: {label}");
         assert!(label.contains("[test]"), "should contain step: {label}");
     }
@@ -607,8 +607,8 @@ mod tests {
         // When
         let label = strip(&format_session_label(&s));
 
-        // Then: contains ✓ icon and PR number
-        assert!(label.contains('✓'), "should contain ✓ icon: {label}");
+        // Then: contains [ok] icon and PR number
+        assert!(label.contains('[ok]'), "should contain [ok] icon: {label}");
         assert!(
             label.contains("Completed"),
             "should contain Completed: {label}"
@@ -628,8 +628,8 @@ mod tests {
         // When
         let label = strip(&format_session_label(&s));
 
-        // Then: contains ✗ icon
-        assert!(label.contains('✗'), "should contain ✗ icon: {label}");
+        // Then: contains [fail] icon
+        assert!(label.contains('[fail]'), "should contain [fail] icon: {label}");
         assert!(label.contains("Failed"), "should contain Failed: {label}");
     }
 
@@ -642,19 +642,19 @@ mod tests {
         // When
         let label = strip(&format_session_label(&s));
 
-        // Then: contains ellipsis "…" and total label length is 200 chars or less
+        // Then: contains ellipsis "..." and total label length is 200 chars or less
         assert!(
-            label.contains('…'),
+            label.contains('...'),
             "long input should be truncated: {label}"
         );
     }
 
     // -----------------------------------------------------------------------
-    // session_actions — Reset to Planned coverage
+    // session_actions -- Reset to Planned coverage
     // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
-    // session_actions — Suspended
+    // session_actions -- Suspended
     // -----------------------------------------------------------------------
 
     #[test]
@@ -667,7 +667,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // format_suffix — Suspended
+    // format_suffix -- Suspended
     // -----------------------------------------------------------------------
 
     #[test]
@@ -696,7 +696,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // format_session_label — Suspended
+    // format_session_label -- Suspended
     // -----------------------------------------------------------------------
 
     #[test]
@@ -717,7 +717,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // session_actions — Delete/Back tail check (all phases including Suspended)
+    // session_actions -- Delete/Back tail check (all phases including Suspended)
     // -----------------------------------------------------------------------
 
     #[test]
@@ -796,7 +796,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // session_actions — Open PR coverage
+    // session_actions -- Open PR coverage
     // -----------------------------------------------------------------------
 
     #[test]
@@ -900,7 +900,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // AwaitingApproval phase — actions and labels
+    // AwaitingApproval phase -- actions and labels
     // -----------------------------------------------------------------------
 
     #[test]
@@ -942,7 +942,7 @@ mod tests {
         // Given: AwaitingApproval phase
         let session = make_session("20260311100000", "task", SessionPhase::AwaitingApproval);
 
-        // When / Then: order is Approve → Delete → Back
+        // When / Then: order is Approve -> Delete -> Back
         assert_eq!(session_actions(&session), vec!["Approve", "Delete", "Back"]);
     }
 
@@ -963,7 +963,7 @@ mod tests {
             label.contains("Awaiting Approval"),
             "label should contain 'Awaiting Approval': {label}"
         );
-        assert!(label.contains('○'), "label should contain ○ icon: {label}");
+        assert!(label.contains('o'), "label should contain o icon: {label}");
         assert!(
             label.contains("pending task"),
             "label should contain input: {label}"
@@ -989,7 +989,7 @@ mod tests {
         );
     }
 
-    // ── format_session_label: multiline input ─────────────────────────────────
+    // -- format_session_label: multiline input ---------------------------------
 
     #[test]
     fn test_format_session_label_multiline_input_shows_first_line_only() {

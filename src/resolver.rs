@@ -42,10 +42,10 @@ impl ConfigSource {
 /// Resolve a workflow config, returning (`yaml_content`, source).
 ///
 /// Resolution order:
-/// 1. `explicit` (`-c` flag) — error if file does not exist.
-/// 2. `CRUISE_CONFIG` env var — error if file does not exist.
-/// 3. `./cruise.yaml` → `./cruise.yml` → `./.cruise.yaml` → `./.cruise.yml`.
-/// 4. `~/.cruise/*.yaml` / `*.yml` — auto-select if exactly one, else prompt.
+/// 1. `explicit` (`-c` flag) -- error if file does not exist.
+/// 2. `CRUISE_CONFIG` env var -- error if file does not exist.
+/// 3. `./cruise.yaml` -> `./cruise.yml` -> `./.cruise.yaml` -> `./.cruise.yml`.
+/// 4. `~/.cruise/*.yaml` / `*.yml` -- auto-select if exactly one, else prompt.
 /// 6. Built-in default.
 ///
 /// # Errors

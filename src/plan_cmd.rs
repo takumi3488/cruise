@@ -73,7 +73,7 @@ pub async fn run(args: PlanArgs) -> Result<()> {
 
     eprintln!(
         "\n{} {}",
-        style("▶").cyan().bold(),
+        style(">").cyan().bold(),
         style("[plan] creating plan...").bold()
     );
 
@@ -165,7 +165,7 @@ async fn run_approve_loop(
         Err(err) => {
             eprintln!(
                 "\n{} Generated plan is missing or empty. Session {} discarded.",
-                style("✗").red().bold(),
+                style("[fail]").red().bold(),
                 session.id
             );
             if let Err(del_err) = manager.delete(&session.id) {
@@ -183,7 +183,7 @@ async fn run_approve_loop(
             manager.save(session)?;
             eprintln!(
                 "\n{} Session {} created.",
-                style("✓").green().bold(),
+                style("[ok]").green().bold(),
                 session.id
             );
             eprintln!(
@@ -210,7 +210,7 @@ async fn run_approve_loop(
                 manager.save(session)?;
                 eprintln!(
                     "\n{} Session {} created.",
-                    style("✓").green().bold(),
+                    style("[ok]").green().bold(),
                     session.id
                 );
                 eprintln!(
@@ -241,7 +241,7 @@ async fn run_approve_loop(
                 manager.save(session)?;
                 eprintln!(
                     "\n{} Executing session {}...",
-                    style("→").cyan(),
+                    style("->").cyan(),
                     session.id
                 );
                 let run_args = crate::cli::RunArgs {
@@ -343,7 +343,7 @@ async fn run_plan_prompt(
         instruction: None,
     };
     let env = std::collections::HashMap::new();
-    eprintln!("\n{} {}", style("▶").cyan().bold(), style(label).bold());
+    eprintln!("\n{} {}", style(">").cyan().bold(), style(label).bold());
     let compiled = crate::workflow::compile(config.clone())?;
     run_prompt_step(vars, &compiled, &step, rate_limit_retries, &env, None).await?;
     Ok(())
@@ -497,7 +497,7 @@ mod tests {
         assert_eq!(result.unwrap_or_else(|e| panic!("{e:?}")), content);
     }
 
-    // ── resolve_input with multiline stdin ───────────────────────────────────
+    // -- resolve_input with multiline stdin -----------------------------------
 
     #[test]
     fn test_resolve_input_multiline_from_stdin_preserves_internal_newlines() {

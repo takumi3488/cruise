@@ -109,7 +109,7 @@ fn save_session_state_with_conflict_resolution(
         return manager.save_with_fingerprint(session);
     }
 
-    // Conflict detected — build a user-facing message from the already-read contents.
+    // Conflict detected -- build a user-facing message from the already-read contents.
     let state_path = manager.state_path(&session.id);
     let message = session_state_conflict_message(&state_path, &current_contents);
 
@@ -159,7 +159,7 @@ fn prompt_for_session_state_conflict(message: &str) -> Result<SessionStateConfli
         return Ok(choice);
     }
 
-    eprintln!("{} {}", style("⚠").yellow().bold(), message);
+    eprintln!("{} {}", style("[!]").yellow().bold(), message);
     let options = vec![
         SESSION_STATE_CONFLICT_ABORT_LABEL,
         SESSION_STATE_CONFLICT_OVERWRITE_LABEL,
@@ -356,8 +356,8 @@ async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Res
     // Handle Ctrl+C: save as Suspended so the session can be resumed later.
     if matches!(exec_result, Err(CruiseError::Interrupted)) {
         eprintln!(
-            "\n{} Interrupted — session saved as Suspended.",
-            style("⏸").yellow().bold()
+            "\n{} Interrupted -- session saved as Suspended.",
+            style("||").yellow().bold()
         );
         session.phase = SessionPhase::Suspended;
         manager.save(session)?;
@@ -402,9 +402,9 @@ async fn run_single(args: RunArgs, workspace_override: WorkspaceOverride) -> Res
 
 /// Apply the result of a step execution to the session state.
 ///
-/// - `Ok(())` → `Completed`
-/// - `Err(StepPaused)` → keep `Running` (session can be resumed with `cruise run`)
-/// - `Err(other)` → `Failed`
+/// - `Ok(())` -> `Completed`
+/// - `Err(StepPaused)` -> keep `Running` (session can be resumed with `cruise run`)
+/// - `Err(other)` -> `Failed`
 fn apply_run_result_to_session(session: &mut SessionState, result: &Result<()>) {
     match result {
         Ok(()) => {
@@ -428,12 +428,12 @@ fn log_resume_message(session: &SessionState) {
     };
     match &session.phase {
         SessionPhase::Running | SessionPhase::Suspended => {
-            eprintln!("{} Resuming from step: {}", style("↺").cyan(), step);
+            eprintln!("{} Resuming from step: {}", style("~>").cyan(), step);
         }
         SessionPhase::Failed(_) => {
             eprintln!(
                 "{} Retrying from failed step: {}",
-                style("↺").yellow(),
+                style("~>").yellow(),
                 step
             );
         }
@@ -448,7 +448,7 @@ fn update_session_workspace(session: &mut SessionState, ws: &ExecutionWorkspace)
             let suffix = if *reused { " (reused)" } else { "" };
             eprintln!(
                 "{} worktree: {}{}",
-                style("→").cyan(),
+                style("->").cyan(),
                 ctx.path.display(),
                 suffix
             );
@@ -456,7 +456,7 @@ fn update_session_workspace(session: &mut SessionState, ws: &ExecutionWorkspace)
             session.worktree_branch = Some(ctx.branch.clone());
         }
         ExecutionWorkspace::CurrentBranch { path } => {
-            eprintln!("{} current branch: {}", style("→").cyan(), path.display());
+            eprintln!("{} current branch: {}", style("->").cyan(), path.display());
             session.worktree_path = None;
             session.worktree_branch = None;
             session.pr_url = None;
@@ -481,7 +481,7 @@ async fn handle_worktree_pr(
             pr_attempt.report();
             match pr_attempt {
                 PrAttemptOutcome::Created { url, .. } => {
-                    eprintln!("{} PR created: {}", style("✓").green().bold(), url);
+                    eprintln!("{} PR created: {}", style("[ok]").green().bold(), url);
                     if let Some(number) = extract_last_path_segment(&url) {
                         vars.set_named_value(PR_NUMBER_VAR, number);
                     }
@@ -556,7 +556,7 @@ async fn generate_pr_description(
         let truncated: String = llm_output.chars().take(500).collect();
         eprintln!(
             "{} Failed to parse PR metadata from LLM output (first 500 chars):\n{}",
-            style("⚠").yellow(),
+            style("[!]").yellow(),
             truncated
         );
     }
@@ -748,12 +748,12 @@ impl PrAttemptOutcome {
 fn report_commit_outcome(commit_outcome: CommitOutcome) {
     match commit_outcome {
         CommitOutcome::Created => {
-            eprintln!("{} Changes committed", style("✓").green().bold());
+            eprintln!("{} Changes committed", style("[ok]").green().bold());
         }
         CommitOutcome::NoChanges => {
             eprintln!(
                 "{} No new changes to commit; using existing branch commits",
-                style("→").cyan()
+                style("->").cyan()
             );
         }
     }
@@ -916,7 +916,7 @@ fn create_pr(worktree_path: &Path, branch: &str, title: &str, body: &str) -> Res
         return Ok(url);
     }
 
-    // PR may already exist — try to fetch the URL.
+    // PR may already exist -- try to fetch the URL.
     let fallback = std::process::Command::new("gh")
         .args(["pr", "view", branch, "--json", "url", "--jq", ".url"])
         .current_dir(worktree_path)
@@ -982,8 +982,8 @@ fn select_pending_session(manager: &SessionManager) -> Result<String> {
     if pending.len() == 1 {
         let s = &pending[0];
         eprintln!(
-            "{} Selected session: {} — {}",
-            style("→").cyan(),
+            "{} Selected session: {} -- {}",
+            style("->").cyan(),
             s.id,
             crate::display::truncate(&s.input, 60)
         );
@@ -1208,30 +1208,30 @@ fn format_run_all_summary(results: &[SessionState]) -> String {
                 let pr = result
                     .pr_url
                     .as_deref()
-                    .map(|url| format!(" {} {url}", style("→").yellow()))
+                    .map(|url| format!(" {} {url}", style("->").yellow()))
                     .unwrap_or_default();
                 format!(
                     "[{}] {} {}{}",
                     i + 1,
-                    style("✓").green().bold(),
+                    style("[ok]").green().bold(),
                     truncated,
                     pr
                 )
             }
             SessionPhase::Failed(err) => {
                 format!(
-                    "[{}] {} {} — Failed: {}",
+                    "[{}] {} {} -- Failed: {}",
                     i + 1,
-                    style("✗").red().bold(),
+                    style("[fail]").red().bold(),
                     truncated,
                     err
                 )
             }
             SessionPhase::Suspended => {
                 format!(
-                    "[{}] {} {} — Suspended",
+                    "[{}] {} {} -- Suspended",
                     i + 1,
-                    style("⏸").yellow().bold(),
+                    style("||").yellow().bold(),
                     truncated
                 )
             }
@@ -2807,7 +2807,7 @@ steps:
     }
 
     // -----------------------------------------------------------------------
-    // format_run_all_summary — Suspended
+    // format_run_all_summary -- Suspended
     // -----------------------------------------------------------------------
 
     #[test]
@@ -2919,7 +2919,7 @@ steps:
             "summary should contain PR URL: {summary}"
         );
         assert!(
-            !summary.contains("Failed") && !summary.contains("✗"),
+            !summary.contains("Failed") && !summary.contains("[fail]"),
             "completed session should not show failure: {summary}"
         );
     }
@@ -2942,7 +2942,7 @@ steps:
             "summary should contain input: {summary}"
         );
         assert!(
-            !summary.contains("Failed") && !summary.contains("✗"),
+            !summary.contains("Failed") && !summary.contains("[fail]"),
             "completed session should not show failure: {summary}"
         );
     }
@@ -3010,7 +3010,7 @@ steps:
 
     #[test]
     fn test_format_run_all_summary_mixed_with_completed_no_pr() {
-        // Given: 3 sessions — success with PR, completed without PR, and explicit failure
+        // Given: 3 sessions -- success with PR, completed without PR, and explicit failure
         let results = vec![
             make_session(
                 "add auth module",
@@ -3048,7 +3048,7 @@ steps:
             .find(|l| l.contains("refactor cache layer"))
             .unwrap_or_else(|| panic!("refactor cache layer line not found in summary"));
         assert!(
-            !refactor_line.contains("Failed") && !refactor_line.contains("✗"),
+            !refactor_line.contains("Failed") && !refactor_line.contains("[fail]"),
             "completed session should not show failure, got: {refactor_line:?}"
         );
 
@@ -3084,7 +3084,7 @@ steps:
 
     // -----------------------------------------------------------------------
     // apply_run_result_to_session() integration tests
-    // These test the finalization logic across engine → run_cmd → session.
+    // These test the finalization logic across engine -> run_cmd -> session.
     // -----------------------------------------------------------------------
 
     #[test]
@@ -3104,7 +3104,7 @@ steps:
     #[test]
     fn test_apply_run_result_step_paused_keeps_running_phase() {
         // Given: a Running session and a StepPaused error
-        // (StepPaused means user pressed Esc — session should be resumable)
+        // (StepPaused means user pressed Esc -- session should be resumable)
         let mut session = make_session("some task", SessionPhase::Running, None);
         // When: applying StepPaused
         apply_run_result_to_session(&mut session, &Err(CruiseError::StepPaused));

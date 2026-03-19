@@ -12,8 +12,8 @@ pub enum InputResult {
 impl InputResult {
     /// Convert into a plain `Result<String>`.
     ///
-    /// `Submitted(text)` → `Ok(text)` preserving internal newlines.
-    /// `Cancelled`       → `Err(CruiseError::Other("input cancelled"))`.
+    /// `Submitted(text)` -> `Ok(text)` preserving internal newlines.
+    /// `Cancelled`       -> `Err(CruiseError::Other("input cancelled"))`.
     ///
     /// # Errors
     ///
@@ -31,10 +31,10 @@ impl InputResult {
 /// Display a multiline-capable prompt and return the user's input.
 ///
 /// Keys:
-/// - Enter         → submit
-/// - Shift+Enter   → newline (kitty protocol terminals)
-/// - Alt+Enter     → newline (all terminals)
-/// - Ctrl+C/Escape → cancel
+/// - Enter         -> submit
+/// - Shift+Enter   -> newline (kitty protocol terminals)
+/// - Alt+Enter     -> newline (all terminals)
+/// - Ctrl+C/Escape -> cancel
 pub(crate) fn prompt_multiline(message: &str) -> Result<InputResult> {
     use crossterm::{
         cursor,
@@ -140,7 +140,7 @@ pub(crate) fn prompt_multiline(message: &str) -> Result<InputResult> {
     Ok(result)
 }
 
-// ─── Internal pure logic (testable without a terminal) ────────────────────────
+// --- Internal pure logic (testable without a terminal) ------------------------
 
 /// Text buffer with a cursor position for the multiline input widget.
 ///
@@ -273,7 +273,7 @@ impl InputBuffer {
         self.lines.iter().all(|l| l.trim().is_empty())
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
+    // -- Private helpers -------------------------------------------------------
 
     /// Return the terminal display column for the current cursor position.
     ///
@@ -310,19 +310,19 @@ impl InputBuffer {
     }
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────────
+// --- Tests ---------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ── Test helpers ───────────────────────────────────────────────────────────
+    // -- Test helpers -----------------------------------------------------------
 
     fn buf_with(text: &str) -> InputBuffer {
         InputBuffer::from_text(text)
     }
 
-    // ── InputResult::into_result ─────────────────────────────────────────────
+    // -- InputResult::into_result ---------------------------------------------
 
     #[test]
     fn test_into_result_submitted_returns_text() {
@@ -357,7 +357,7 @@ mod tests {
         assert!(result.is_err(), "Cancelled should produce Err, got Ok");
     }
 
-    // ── InputResult ────────────────────────────────────────────────────────────
+    // -- InputResult ------------------------------------------------------------
 
     #[test]
     fn test_input_result_submitted_holds_text() {
@@ -384,7 +384,7 @@ mod tests {
         assert_ne!(result, InputResult::Cancelled);
     }
 
-    // ── InputBuffer – creation ─────────────────────────────────────────────────
+    // -- InputBuffer - creation -------------------------------------------------
 
     #[test]
     fn test_new_buffer_starts_empty() {
@@ -405,7 +405,7 @@ mod tests {
         assert_eq!(buf.lines[0], "");
     }
 
-    // ── InputBuffer – insert_char ──────────────────────────────────────────────
+    // -- InputBuffer - insert_char ----------------------------------------------
 
     #[test]
     fn test_insert_single_char_produces_text() {
@@ -441,12 +441,12 @@ mod tests {
     #[test]
     fn test_insert_unicode_char() {
         let mut buf = InputBuffer::new();
-        buf.insert_char('あ');
-        assert_eq!(buf.text(), "あ");
+        buf.insert_char('\u{3042}');
+        assert_eq!(buf.text(), "\u{3042}");
         assert_eq!(buf.cursor_col, 1);
     }
 
-    // ── InputBuffer – insert_newline ───────────────────────────────────────────
+    // -- InputBuffer - insert_newline -------------------------------------------
 
     #[test]
     fn test_insert_newline_at_end_creates_empty_second_line() {
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(buf_with("hello\nworld").text(), "hello\nworld");
     }
 
-    // ── InputBuffer – delete_char ──────────────────────────────────────────────
+    // -- InputBuffer - delete_char ----------------------------------------------
 
     #[test]
     fn test_delete_char_at_start_of_empty_buffer_does_nothing() {
@@ -514,7 +514,7 @@ mod tests {
         assert_eq!(buf.cursor_col, 2);
     }
 
-    // ── InputBuffer – move_left ────────────────────────────────────────────────
+    // -- InputBuffer - move_left ------------------------------------------------
 
     #[test]
     fn test_move_left_at_start_of_buffer_does_nothing() {
@@ -539,7 +539,7 @@ mod tests {
         assert_eq!((buf.cursor_row, buf.cursor_col), (0, 5));
     }
 
-    // ── InputBuffer – move_right ───────────────────────────────────────────────
+    // -- InputBuffer - move_right -----------------------------------------------
 
     #[test]
     fn test_move_right_at_end_of_buffer_does_nothing() {
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!((buf.cursor_row, buf.cursor_col), (1, 0));
     }
 
-    // ── InputBuffer – move_up ──────────────────────────────────────────────────
+    // -- InputBuffer - move_up --------------------------------------------------
 
     #[test]
     fn test_move_up_at_first_line_does_nothing() {
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn test_move_up_moves_to_previous_line_same_col() {
         let mut buf = buf_with("hello\nworld");
-        // cursor at (1, 5); move left twice → (1, 3)
+        // cursor at (1, 5); move left twice -> (1, 3)
         buf.move_left();
         buf.move_left();
         buf.move_up();
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_move_up_clamps_col_to_shorter_line() {
-        // cursor ends at (1, 5) — end of "world"
+        // cursor ends at (1, 5) -- end of "world"
         let mut buf = buf_with("hi\nworld");
         buf.move_up();
         // "hi" is len 2, so col clamps to 2
@@ -597,14 +597,14 @@ mod tests {
 
     #[test]
     fn test_move_up_snaps_to_end_of_previous_line() {
-        // cursor ends at (1, 5) — end of "world" (also end of line)
-        // "hello" is len 5, so "snap to end" → (0, 5)
+        // cursor ends at (1, 5) -- end of "world" (also end of line)
+        // "hello" is len 5, so "snap to end" -> (0, 5)
         let mut buf = buf_with("hello\nworld");
         buf.move_up();
         assert_eq!((buf.cursor_row, buf.cursor_col), (0, 5));
     }
 
-    // ── InputBuffer – move_down ────────────────────────────────────────────────
+    // -- InputBuffer - move_down ------------------------------------------------
 
     #[test]
     fn test_move_down_at_last_line_does_nothing() {
@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn test_move_down_clamps_col_to_shorter_line() {
-        // cursor at (0, 5) — end of "world"
+        // cursor at (0, 5) -- end of "world"
         let mut buf = buf_with("world\nhi");
         buf.move_up();
         assert_eq!((buf.cursor_row, buf.cursor_col), (0, 5));
@@ -637,8 +637,8 @@ mod tests {
 
     #[test]
     fn test_move_down_snaps_to_end_of_next_line() {
-        // cursor at (0, 5) — end of "hello" (also end of line)
-        // "world" is len 5, so "snap to end" → (1, 5)
+        // cursor at (0, 5) -- end of "hello" (also end of line)
+        // "world" is len 5, so "snap to end" -> (1, 5)
         let mut buf = buf_with("hello\nworld");
         buf.move_up();
         assert_eq!((buf.cursor_row, buf.cursor_col), (0, 5));
@@ -646,7 +646,7 @@ mod tests {
         assert_eq!((buf.cursor_row, buf.cursor_col), (1, 5));
     }
 
-    // ── InputBuffer – is_empty_content ────────────────────────────────────────
+    // -- InputBuffer - is_empty_content ----------------------------------------
 
     #[test]
     fn test_is_empty_content_for_new_buffer() {
@@ -673,7 +673,7 @@ mod tests {
         assert!(!buf_with("\nhi\n").is_empty_content());
     }
 
-    // ── InputBuffer – text() multiline ────────────────────────────────────────
+    // -- InputBuffer - text() multiline ----------------------------------------
 
     #[test]
     fn test_text_preserves_internal_newlines() {
@@ -688,7 +688,7 @@ mod tests {
         assert_eq!(InputBuffer::new().text(), "");
     }
 
-    // ── InputBuffer::from_text ─────────────────────────────────────────────────
+    // -- InputBuffer::from_text -------------------------------------------------
 
     #[test]
     fn test_from_text_single_line_cursor_at_end() {
@@ -745,10 +745,10 @@ mod tests {
 
     #[test]
     fn test_from_text_unicode_initial_text() {
-        // Given: initial text with CJK characters
-        let buf = InputBuffer::from_text("あいう");
+        // Given: initial text with multi-byte Unicode characters (3 chars, 9 bytes in UTF-8)
+        let buf = InputBuffer::from_text("\u{3042}\u{3044}\u{3046}");
         // Then: text preserved and cursor at char position 3 (not byte position)
-        assert_eq!(buf.text(), "あいう");
+        assert_eq!(buf.text(), "\u{3042}\u{3044}\u{3046}");
         assert_eq!(buf.cursor_col, 3);
     }
 }
