@@ -36,6 +36,16 @@ import { PhaseBadge } from "./components/PhaseBadge";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { formatLocalTime } from "./lib/format";
 
+function runButtonLabel(phase: SessionPhase): string {
+  if (phase === "Suspended") {
+    return "Resume";
+  }
+  if (phase === "Failed") {
+    return "Retry";
+  }
+  return "Run";
+}
+
 // ─── OptionDialog ─────────────────────────────────────────────────────────────
 
 interface OptionDialogProps {

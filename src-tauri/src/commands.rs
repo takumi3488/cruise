@@ -1142,7 +1142,6 @@ mod tests {
         assert_eq!(dto.input, "raw input");
     }
 
-
     #[test]
     fn test_prepare_run_session_uses_requested_workspace_mode_for_fresh_runs() {
         // Given: a fresh planned session and a current-branch run request from the GUI
@@ -1231,7 +1230,6 @@ mod tests {
         let saved = manager.load(session_id).unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(saved.phase, SessionPhase::Planned);
     }
-
 
     // ─── Integration: full option-selection round-trip ────────────────────────
     //
