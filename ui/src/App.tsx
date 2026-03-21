@@ -36,6 +36,12 @@ function formatLocalTime(iso: string): string {
   }
 }
 
+function Spinner({ color = "border-gray-400" }: { color?: string }) {
+  return (
+    <span className={`inline-block w-3 h-3 rounded-full border-2 border-t-transparent animate-spin ${color}`} />
+  );
+}
+
 // ─── Phase badge ──────────────────────────────────────────────────────────────
 
 const PHASE_COLORS: Partial<Record<SessionPhase, string>> = {
@@ -134,10 +140,17 @@ function SessionSidebar({ selectedId, onSelect, onNewSession, onRefreshRef }: Se
             <button
               onClick={() => void handleClean()}
               disabled={cleaning}
-              className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded disabled:opacity-50"
+              className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded disabled:opacity-50 flex items-center gap-1"
               title="Clean completed sessions"
             >
-              {cleaning ? "…" : "Clean"}
+              {cleaning ? (
+                <>
+                  <Spinner />
+                  Cleaning...
+                </>
+              ) : (
+                "Clean"
+              )}
             </button>
             <button
               onClick={onNewSession}
@@ -650,7 +663,7 @@ function WorkflowRunner({ session, onSessionUpdated, onSessionDeleted }: Workflo
         )}
         {replanPhase === "generating" && (
           <div className="flex items-center gap-2 text-sm text-gray-400">
-            <span className="inline-block w-3 h-3 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
+            <Spinner />
             Regenerating plan…
           </div>
         )}
@@ -989,7 +1002,7 @@ function NewSessionForm({ onCreated }: NewSessionFormProps) {
             >
               {planPhase === "generating" ? (
                 <>
-                  <span className="inline-block w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  <Spinner color="border-white" />
                   Generating plan…
                 </>
               ) : (
