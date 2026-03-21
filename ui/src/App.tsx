@@ -12,6 +12,7 @@ import {
   deleteSession,
   discardSession,
   fixSession,
+  getSession,
   getSessionLog,
   getSessionPlan,
   listConfigs,
@@ -20,6 +21,7 @@ import {
   respondToOption,
   runSession,
 } from "./lib/commands";
+import { notifyDesktop } from "./lib/desktopNotifications";
 import { DirectoryPicker } from "./components/DirectoryPicker";
 import { MarkdownViewer } from "./components/MarkdownViewer";
 
@@ -181,6 +183,9 @@ function SessionSidebar({ selectedId, onSelect, onNewSession, onRefreshRef }: Se
                 {s.baseDir.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? s.baseDir}
               </span>
               <span className="text-xs text-gray-600">{formatLocalTime(s.updatedAt ?? s.createdAt)}</span>
+              {s.awaitingInput && (
+                <span className="text-xs text-amber-400 font-medium">● Awaiting input</span>
+              )}
             </div>
           </button>
         ))}
@@ -268,6 +273,69 @@ function OptionDialog({ choices, plan, onRespond }: OptionDialogProps) {
   );
 }
 
+// ─── WorkflowToastStack ───────────────────────────────────────────────────────
+
+type ToastKind = "input-required" | "completed" | "failed";
+
+export interface WorkflowToast {
+  id: number;
+  kind: ToastKind;
+  sessionInput: string;
+  detail?: string;
+}
+
+const TOAST_STYLE: Record<ToastKind, string> = {
+  "input-required": "border-amber-700 bg-amber-900/80 text-amber-100",
+  "completed": "border-green-700 bg-green-900/80 text-green-100",
+  "failed": "border-red-700 bg-red-900/80 text-red-100",
+};
+
+const TOAST_LABEL: Record<ToastKind, string> = {
+  "input-required": "Action required",
+  "completed": "Completed",
+  "failed": "Failed",
+};
+
+const TOAST_DURATION_MS: Record<ToastKind, number> = {
+  "input-required": 10_000,
+  "completed": 5_000,
+  "failed": 5_000,
+};
+
+export function WorkflowToastStack({
+  toasts,
+  onDismiss,
+}: {
+  toasts: WorkflowToast[];
+  onDismiss: (id: number) => void;
+}) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`flex items-start gap-3 px-4 py-3 rounded-lg border shadow-xl text-sm pointer-events-auto ${TOAST_STYLE[t.kind]}`}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="font-medium">{TOAST_LABEL[t.kind]}</div>
+            <div className="text-xs opacity-75 truncate mt-0.5">{t.sessionInput}</div>
+            {t.detail !== undefined && (
+              <div data-testid="toast-detail" className="text-xs opacity-60 truncate mt-0.5">{t.detail}</div>
+            )}
+          </div>
+          <button
+            onClick={() => onDismiss(t.id)}
+            className="opacity-60 hover:opacity-100 flex-shrink-0 text-xs mt-0.5"
+          >
+            x
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── ConfirmDialog ────────────────────────────────────────────────────────────
 
 interface ConfirmDialogProps {
@@ -316,6 +384,7 @@ interface WorkflowRunnerProps {
   session: Session;
   onSessionUpdated: (session: Session) => void;
   onSessionDeleted: () => void;
+  onToast: (toast: Omit<WorkflowToast, "id">) => void;
 }
 
 interface StepEntry {
@@ -333,7 +402,7 @@ interface PendingOption {
 type RunStatus = "idle" | "running" | "completed" | "failed" | "cancelled";
 type ActiveTab = "info" | "plan" | "log";
 
-function WorkflowRunner({ session, onSessionUpdated, onSessionDeleted }: WorkflowRunnerProps) {
+function WorkflowRunner({ session, onSessionUpdated, onSessionDeleted, onToast }: WorkflowRunnerProps) {
   const [status, setStatus] = useState<RunStatus>("idle");
   const [currentStep, setCurrentStep] = useState<StepEntry | null>(null);
   const [liveLog, setLiveLog] = useState<string[]>([]);
@@ -400,6 +469,16 @@ function WorkflowRunner({ session, onSessionUpdated, onSessionDeleted }: Workflo
     }
   }, [liveLog, status]);
 
+  function notifyEvent(kind: ToastKind, sessionInput: string, detail?: string) {
+    onToast({ kind, sessionInput, detail: detail?.slice(0, 80) });
+    void notifyDesktop("Cruise", `${TOAST_LABEL[kind]} — ${(detail ?? sessionInput).slice(0, 60)}`);
+  }
+
+  async function refreshSession() {
+    const updated = await getSession(session.id);
+    onSessionUpdated(updated);
+  }
+
   async function startRun() {
     setStatus("running");
     setCurrentStep(null);
@@ -426,15 +505,18 @@ function WorkflowRunner({ session, onSessionUpdated, onSessionDeleted }: Workflo
           choices: event.data.choices,
           plan: event.data.plan,
         });
+        notifyEvent("input-required", session.input);
       } else if (event.event === "workflowCompleted") {
         setStatus("completed");
         setLiveLog((prev) => [
           ...prev,
           `✓ Completed — run: ${event.data.run}, skipped: ${event.data.skipped}, failed: ${event.data.failed}`,
         ]);
+        notifyEvent("completed", session.input);
       } else if (event.event === "workflowFailed") {
         setStatus("failed");
         setLiveLog((prev) => [...prev, `✗ Failed: ${event.data.error}`]);
+        notifyEvent("failed", session.input, event.data.error);
       } else if (event.event === "workflowCancelled") {
         setStatus("cancelled");
         setLiveLog((prev) => [...prev, "⏸ Cancelled"]);
@@ -448,7 +530,10 @@ function WorkflowRunner({ session, onSessionUpdated, onSessionDeleted }: Workflo
       setLiveLog((prev) => [...prev, `Error: ${e}`]);
     }
 
-    // Reload saved log after run finishes
+    // Re-fetch session state and saved log in parallel after run resolves
+    refreshSession().catch((e) => {
+      setLiveLog((prev) => [...prev, `Session refresh error: ${e}`]);
+    });
     void loadSavedLog();
   }
 
@@ -492,6 +577,8 @@ function WorkflowRunner({ session, onSessionUpdated, onSessionDeleted }: Workflo
     setPendingOption(null);
     try {
       await respondToOption(result);
+      // Re-sync after awaiting_input = false is saved
+      await refreshSession();
     } catch (e) {
       setLiveLog((prev) => [...prev, `Option response error: ${e}`]);
     }
@@ -1174,10 +1261,40 @@ export default function App() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [view, setView] = useState<"session" | "new">("session");
   const sidebarRefreshRef = useRef<(() => void) | null>(null);
+  const [toasts, setToasts] = useState<WorkflowToast[]>([]);
+  const toastIdRef = useRef(0);
+  const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const addToast = useCallback((toast: Omit<WorkflowToast, "id">) => {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { ...toast, id }]);
+    const timer = setTimeout(() => {
+      toastTimersRef.current.delete(id);
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, TOAST_DURATION_MS[toast.kind]);
+    toastTimersRef.current.set(id, timer);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      toastTimersRef.current.delete(id);
+    }
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
 
   return (
     <div className="h-screen flex bg-gray-950 text-gray-100 font-sans">
       <UpdateNotification />
+      <WorkflowToastStack toasts={toasts} onDismiss={dismissToast} />
       {/* Sidebar */}
       <aside className="w-72 flex-shrink-0 border-r border-gray-800 flex flex-col">
         <SessionSidebar
@@ -1196,7 +1313,6 @@ export default function App() {
               // Navigate to the created session after a brief refresh
               setTimeout(async () => {
                 try {
-                  const { getSession } = await import("./lib/commands");
                   const session = await getSession(id);
                   setSelectedSession(session);
                   setView("session");
@@ -1217,6 +1333,7 @@ export default function App() {
               setSelectedSession(null);
               sidebarRefreshRef.current?.();
             }}
+            onToast={addToast}
           />
         ) : (
           <EmptyState />
