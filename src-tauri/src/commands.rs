@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -103,6 +102,19 @@ pub struct DirEntryDto {
 pub struct CleanupResultDto {
     pub deleted: usize,
     pub skipped: usize,
+}
+
+/// Serializable DTO for update readiness, returned by [`get_update_readiness`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateReadinessDto {
+    pub can_auto_update: bool,
+    /// `"translocated"` | `"mountedVolume"` | `"unknownBundlePath"` — set when `can_auto_update` is false.
+    pub reason: Option<String>,
+    /// The resolved `.app` bundle path, for display in the UI.
+    pub bundle_path: Option<String>,
+    /// Human-readable remediation guidance.
+    pub guidance: Option<String>,
 }
 
 /// Option result sent by the frontend when responding to an [`WorkflowEvent::OptionRequired`].
@@ -708,16 +720,10 @@ async fn execute_single_session(
                 cruise::error::CruiseError::Other(format!("failed to set working dir: {e}"))
             })?;
 
-            let total_steps = compiled.steps.len();
-            let step_counter = Cell::new(0usize);
             let on_step_start = |step: &str| -> cruise::error::Result<()> {
-                let index = step_counter.get();
-                step_counter.set(index + 1);
-                logger.write(&format!("[{}/{}] {}", index + 1, total_steps, step));
+                logger.write(step);
                 let _ = channel_for_step.send(WorkflowEvent::StepStarted {
                     step: step.to_string(),
-                    index,
-                    total: total_steps,
                 });
                 Ok(())
             };
@@ -753,7 +759,7 @@ async fn execute_single_session(
                 Err(cruise::error::CruiseError::Interrupted) => {
                     logger.write("⏸ cancelled");
                 }
-                Err(e) => logger.write(&format!("✗ failed: {e}")),
+                Err(e) => logger.write(&format!("✗ failed: {}", e.detailed_message())),
             }
 
             if let Some(dir) = original_dir {
@@ -942,6 +948,92 @@ pub fn do_respond_to_option(
         .send(result)
         .map_err(|_| "option receiver dropped: response not delivered".to_string())?;
     Ok(())
+}
+
+/// Determine whether the current launch context supports automatic in-place update.
+///
+/// The Tauri updater on macOS replaces the `.app` bundle in-place using the path
+/// derived from `current_exe()`.  If the app is running from App Translocation or
+/// a mounted DMG volume the replacement targets a temporary copy and the update
+/// appears to revert on next launch.
+///
+/// Extracted from [`get_update_readiness`] for unit-testability.
+/// On non-macOS platforms this always returns `can_auto_update = true`.
+pub fn check_update_readiness_for_path(exe_path: &std::path::Path) -> UpdateReadinessDto {
+    // Walk ancestor components to find the nearest .app bundle root.
+    let bundle_path = {
+        let mut result = None;
+        let mut current = exe_path;
+        loop {
+            if current.to_str().is_some_and(|s| s.ends_with(".app")) {
+                result = Some(current.to_string_lossy().into_owned());
+                break;
+            }
+            match current.parent() {
+                Some(p) if p != current => current = p,
+                _ => break,
+            }
+        }
+        result
+    };
+
+    let path_str = exe_path.to_string_lossy();
+
+    if path_str.contains("/AppTranslocation/") {
+        return UpdateReadinessDto {
+            can_auto_update: false,
+            reason: Some("translocated".to_string()),
+            bundle_path,
+            guidance: Some(
+                "Move cruise.app to /Applications, then relaunch before updating.".to_string(),
+            ),
+        };
+    }
+
+    if path_str.starts_with("/Volumes/") {
+        return UpdateReadinessDto {
+            can_auto_update: false,
+            reason: Some("mountedVolume".to_string()),
+            bundle_path,
+            guidance: Some(
+                "Copy cruise.app to /Applications before using auto-update.".to_string(),
+            ),
+        };
+    }
+
+    if bundle_path.is_none() {
+        return UpdateReadinessDto {
+            can_auto_update: false,
+            reason: Some("unknownBundlePath".to_string()),
+            bundle_path: None,
+            guidance: None,
+        };
+    }
+
+    UpdateReadinessDto {
+        can_auto_update: true,
+        reason: None,
+        bundle_path,
+        guidance: None,
+    }
+}
+
+/// Return whether the current launch context supports automatic in-place update.
+///
+/// On macOS the updater replaces the `.app` bundle in-place.  If the app is
+/// running from App Translocation or a mounted DMG the replacement targets a
+/// temporary copy, causing the update to appear to revert on next launch.
+#[tauri::command]
+pub fn get_update_readiness() -> UpdateReadinessDto {
+    match std::env::current_exe() {
+        Ok(path) => check_update_readiness_for_path(&path),
+        Err(_) => UpdateReadinessDto {
+            can_auto_update: false,
+            reason: Some("unknownBundlePath".to_string()),
+            bundle_path: None,
+            guidance: None,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -1363,96 +1455,108 @@ mod tests {
         }
     }
 
-    // ─── SessionDto::from_state / plan_available ─────────────────────────────
+    // ─── check_update_readiness_for_path ─────────────────────────────────────
 
     #[test]
-    fn test_session_dto_plan_available_true_when_plan_has_content() {
-        // Given: an AwaitingApproval session with a non-empty plan.md
-        let tmp = TempDir::new().unwrap_or_else(|e| panic!("{e:?}"));
-        let repo = tmp.path().join("repo");
-        fs::create_dir_all(&repo).unwrap_or_else(|e| panic!("{e:?}"));
-        let manager = SessionManager::new(tmp.path().join(".cruise"));
-        let session = make_session("20260321130000", &repo);
-        manager.create(&session).unwrap_or_else(|e| panic!("{e:?}"));
-        let plan_path = session.plan_path(&manager.sessions_dir());
-        fs::write(
-            &plan_path,
-            "# Implementation Plan\n\nStep 1: do the thing\n",
-        )
-        .unwrap_or_else(|e| panic!("{e:?}"));
+    fn test_readiness_normal_applications_path_allows_update() {
+        // Given: exe is inside a normal /Applications/ .app bundle
+        let exe = Path::new("/Applications/cruise.app/Contents/MacOS/cruise");
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: update is allowed and no reason is set
+        assert!(r.can_auto_update);
+        assert!(r.reason.is_none());
+    }
 
-        // When: constructing the DTO with filesystem access
-        let dto = SessionDto::from_state(session, &manager);
+    #[test]
+    fn test_readiness_app_translocation_path_blocks_update() {
+        // Given: exe is in an App Translocation sandbox created by macOS Gatekeeper
+        let exe = Path::new(
+            "/private/var/folders/xx/yyy/T/AppTranslocation/AABBCCDD/d/cruise.app/Contents/MacOS/cruise",
+        );
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: update is blocked with reason "translocated"
+        assert!(!r.can_auto_update);
+        assert_eq!(r.reason.as_deref(), Some("translocated"));
+    }
 
-        // Then: plan_available reflects that a valid plan file exists
+    #[test]
+    fn test_readiness_mounted_dmg_volume_blocks_update() {
+        // Given: exe is running directly from a mounted DMG volume
+        let exe = Path::new("/Volumes/cruise 0.1.24/cruise.app/Contents/MacOS/cruise");
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: update is blocked with reason "mountedVolume"
+        assert!(!r.can_auto_update);
+        assert_eq!(r.reason.as_deref(), Some("mountedVolume"));
+    }
+
+    #[test]
+    fn test_readiness_path_without_app_bundle_returns_unknown() {
+        // Given: exe path has no .app ancestor component (e.g. a bare binary)
+        let exe = Path::new("/usr/local/bin/cruise");
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: update is blocked with reason "unknownBundlePath"
+        assert!(!r.can_auto_update);
+        assert_eq!(r.reason.as_deref(), Some("unknownBundlePath"));
+    }
+
+    #[test]
+    fn test_readiness_translocated_path_reports_bundle_path() {
+        // Given: exe inside an App Translocation .app
+        let exe = Path::new(
+            "/private/var/folders/xx/yyy/T/AppTranslocation/AABBCCDD/d/cruise.app/Contents/MacOS/cruise",
+        );
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: bundle_path ends with ".app" so the UI can display it
+        let bundle_path = r.bundle_path.unwrap_or_default();
         assert!(
-            dto.plan_available,
-            "expected plan_available == true for non-empty plan.md"
+            bundle_path.ends_with(".app"),
+            "expected bundle_path to end with '.app', got: {bundle_path}"
         );
     }
 
     #[test]
-    fn test_session_dto_plan_available_false_when_plan_is_missing() {
-        // Given: a session with no plan.md written yet
-        let tmp = TempDir::new().unwrap_or_else(|e| panic!("{e:?}"));
-        let repo = tmp.path().join("repo");
-        fs::create_dir_all(&repo).unwrap_or_else(|e| panic!("{e:?}"));
-        let manager = SessionManager::new(tmp.path().join(".cruise"));
-        let session = make_session("20260321130001", &repo);
-        manager.create(&session).unwrap_or_else(|e| panic!("{e:?}"));
-        // Note: no plan.md written
-
-        // When: constructing the DTO with filesystem access
-        let dto = SessionDto::from_state(session, &manager);
-
-        // Then: plan_available is false because no file exists
+    fn test_readiness_translocated_path_includes_applications_guidance() {
+        // Given: exe inside an App Translocation .app
+        let exe = Path::new(
+            "/private/var/folders/xx/yyy/T/AppTranslocation/AABBCCDD/d/cruise.app/Contents/MacOS/cruise",
+        );
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: guidance mentions /Applications so the user knows where to move the app
+        let guidance = r.guidance.unwrap_or_default();
         assert!(
-            !dto.plan_available,
-            "expected plan_available == false when plan.md is absent"
+            guidance.contains("/Applications"),
+            "expected guidance to mention '/Applications', got: {guidance}"
         );
     }
 
     #[test]
-    fn test_session_dto_plan_available_false_when_plan_is_empty() {
-        // Given: a session with an empty plan.md
-        let tmp = TempDir::new().unwrap_or_else(|e| panic!("{e:?}"));
-        let repo = tmp.path().join("repo");
-        fs::create_dir_all(&repo).unwrap_or_else(|e| panic!("{e:?}"));
-        let manager = SessionManager::new(tmp.path().join(".cruise"));
-        let session = make_session("20260321130002", &repo);
-        manager.create(&session).unwrap_or_else(|e| panic!("{e:?}"));
-        let plan_path = session.plan_path(&manager.sessions_dir());
-        fs::write(&plan_path, "").unwrap_or_else(|e| panic!("{e:?}"));
-
-        // When: constructing the DTO with filesystem access
-        let dto = SessionDto::from_state(session, &manager);
-
-        // Then: plan_available is false because the file has no real content
+    fn test_readiness_mounted_volume_includes_applications_guidance() {
+        // Given: exe running from a mounted DMG volume
+        let exe = Path::new("/Volumes/cruise 0.1.24/cruise.app/Contents/MacOS/cruise");
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: guidance mentions /Applications so the user knows to copy the app first
+        let guidance = r.guidance.unwrap_or_default();
         assert!(
-            !dto.plan_available,
-            "expected plan_available == false for empty plan.md"
+            guidance.contains("/Applications"),
+            "expected guidance to mention '/Applications', got: {guidance}"
         );
     }
 
     #[test]
-    fn test_session_dto_plan_available_false_when_plan_is_whitespace_only() {
-        // Given: a session with a whitespace-only plan.md
-        let tmp = TempDir::new().unwrap_or_else(|e| panic!("{e:?}"));
-        let repo = tmp.path().join("repo");
-        fs::create_dir_all(&repo).unwrap_or_else(|e| panic!("{e:?}"));
-        let manager = SessionManager::new(tmp.path().join(".cruise"));
-        let session = make_session("20260321130003", &repo);
-        manager.create(&session).unwrap_or_else(|e| panic!("{e:?}"));
-        let plan_path = session.plan_path(&manager.sessions_dir());
-        fs::write(&plan_path, "   \n\t\n  ").unwrap_or_else(|e| panic!("{e:?}"));
-
-        // When: constructing the DTO with filesystem access
-        let dto = SessionDto::from_state(session, &manager);
-
-        // Then: plan_available is false because whitespace-only doesn't count as real content
-        assert!(
-            !dto.plan_available,
-            "expected plan_available == false for whitespace-only plan.md"
-        );
+    fn test_readiness_nested_volumes_subpath_blocks_update() {
+        // Given: exe path that starts with /Volumes/ but is nested deeper
+        let exe = Path::new("/Volumes/ExternalDisk/apps/cruise.app/Contents/MacOS/cruise");
+        // When: readiness is checked
+        let r = check_update_readiness_for_path(exe);
+        // Then: still blocked as mountedVolume
+        assert!(!r.can_auto_update);
+        assert_eq!(r.reason.as_deref(), Some("mountedVolume"));
     }
 }
