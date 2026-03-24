@@ -19,6 +19,7 @@ pub struct PromptResult {
 /// # Errors
 ///
 /// Returns an error if the LLM process fails to spawn or returns a fatal error.
+#[expect(clippy::too_many_arguments)]
 pub async fn run_prompt<S: std::hash::BuildHasher, F: Fn(&str)>(
     command: &[String],
     model: Option<&str>,
