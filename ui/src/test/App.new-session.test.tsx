@@ -291,8 +291,8 @@ describe("App: WorkflowRunner tab selection persistence", () => {
 
     // Select Session A and switch to Plan tab
     await userEvent.click(screen.getByRole("button", { name: /task A/ }));
-    await waitFor(() => screen.getByRole("button", { name: "Plan" }));
-    await userEvent.click(screen.getByRole("button", { name: "Plan" }));
+    await waitFor(() => screen.getByRole("tab", { name: "Plan" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Plan" }));
 
     // Verify Plan tab is active: Info tab's "Base dir" label is not shown
     await waitFor(() => {
@@ -302,11 +302,11 @@ describe("App: WorkflowRunner tab selection persistence", () => {
 
     // Navigate to Session B
     await userEvent.click(screen.getByRole("button", { name: /task B/ }));
-    await waitFor(() => screen.getByRole("button", { name: "Info" }));
+    await waitFor(() => screen.getByRole("tab", { name: "Info" }));
 
     // When: go back to Session A
     await userEvent.click(screen.getByRole("button", { name: /task A/ }));
-    await waitFor(() => screen.getByRole("button", { name: "Plan" }));
+    await waitFor(() => screen.getByRole("tab", { name: "Plan" }));
 
     // Then: Session A should still show Plan tab, not Info tab
     // "Base dir" label only appears in the Info tab
@@ -326,8 +326,8 @@ describe("App: WorkflowRunner tab selection persistence", () => {
 
     // Select Session B and switch to Log tab
     await userEvent.click(screen.getByRole("button", { name: /task B/ }));
-    await waitFor(() => screen.getByRole("button", { name: "Log" }));
-    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() => screen.getByRole("tab", { name: "Log" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Log" }));
 
     // Verify Log tab is active: Info tab's "Base dir" label is not shown
     await waitFor(() => {
@@ -356,8 +356,8 @@ describe("App: WorkflowRunner tab selection persistence", () => {
 
     // Select Session A and open Plan tab (triggers initial loadPlan)
     await userEvent.click(screen.getByRole("button", { name: /task A/ }));
-    await waitFor(() => screen.getByRole("button", { name: "Plan" }));
-    await userEvent.click(screen.getByRole("button", { name: "Plan" }));
+    await waitFor(() => screen.getByRole("tab", { name: "Plan" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Plan" }));
     await waitFor(() => expect(commands.getSessionPlan).toHaveBeenCalledWith("sess-a"));
 
     // Reset the call count to track new calls
