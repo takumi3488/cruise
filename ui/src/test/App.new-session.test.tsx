@@ -588,6 +588,28 @@ describe("App: WorkflowRunner tab selection persistence", () => {
 
 // ─── NewSessionForm: Ask flow ──────────────────────────────────────────────────
 
+/**
+ * Set up createSession to immediately emit planGenerated and resolve,
+ * simulating the simple (non-two-phase) case where a plan is produced
+ * synchronously for tests that only need an AwaitingApproval state.
+ *
+ * channel.onmessage is already set by handleGenerate() before createSession is
+ * called, so calling it synchronously here is safe and avoids macrotask-timer
+ * issues in the jsdom test environment.
+ */
+function mockCreateSessionWithPlan(planContent = "# Plan content"): void {
+  vi.mocked(commands.createSession).mockImplementationOnce(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (_params: any, channel: any) => {
+      channel.onmessage?.({
+        event: "planGenerated",
+        data: { sessionId: "new-sess-id", content: planContent },
+      });
+      return "new-sess-id";
+    }
+  );
+}
+
 describe("App: NewSessionForm Ask flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
