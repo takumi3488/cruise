@@ -634,7 +634,9 @@ mod tests {
         .unwrap_or_else(|e| panic!("{e:?}"));
 
         let _dir_guard = DirGuard::new();
-        let _home_guard = EnvGuard::set("HOME", fake_home.path().as_os_str());
+        // `home` crate 0.5.x uses USERPROFILE on Windows, HOME on Unix.
+        let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let _home_guard = EnvGuard::set(home_var, fake_home.path().as_os_str());
         let _env_guard = EnvGuard::remove("CRUISE_CONFIG");
 
         // When: resolved against the empty repo dir
