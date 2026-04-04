@@ -7,6 +7,7 @@ import { listSessions, cleanSessions, getUpdateReadiness } from "../lib/commands
 import type { Session, UpdateReadiness } from "../types";
 import { PhaseBadge } from "./PhaseBadge";
 import { formatLocalTime } from "../lib/format";
+import { isApprovalReady } from "../lib/sessionActions";
 
 type UpdateState = "available" | "downloading" | "error";
 
@@ -26,12 +27,18 @@ interface SessionSidebarProps {
    *  the result, passing the latest DTO so the parent can stay in sync without
    *  triggering a view-change side effect (i.e. never call onSelect here). */
   onSelectedSessionUpdated?: (session: Session) => void;
+  /** Called after each successful load() when the fingerprint changes.
+   *  App uses this to detect phase transitions (approval-ready, completed)
+   *  and fire notifications without depending on the 3-second idle poll. */
+  onSessionsChanged?: (sessions: Session[]) => void;
 }
 
-export function SessionSidebar({ selectedId, onSelect, onNewSession, onRunAll, onRefreshRef, onSelectedSessionUpdated: onSelectedSessionUpdatedProp }: SessionSidebarProps) {
+export function SessionSidebar({ selectedId, onSelect, onNewSession, onRunAll, onRefreshRef, onSelectedSessionUpdated: onSelectedSessionUpdatedProp, onSessionsChanged: onSessionsChangedProp }: SessionSidebarProps) {
   // Stable refs so load() can access the latest props without re-creating itself
   const onSelectedSessionUpdatedRef = useRef(onSelectedSessionUpdatedProp);
   onSelectedSessionUpdatedRef.current = onSelectedSessionUpdatedProp;
+  const onSessionsChangedRef = useRef(onSessionsChangedProp);
+  onSessionsChangedRef.current = onSessionsChangedProp;
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -67,6 +74,7 @@ export function SessionSidebar({ selectedId, onSelect, onNewSession, onRunAll, o
       if (fingerprint !== lastFingerprintRef.current) {
         lastFingerprintRef.current = fingerprint;
         setSessions(sorted);
+        onSessionsChangedRef.current?.(sorted);
         if (selectedIdRef.current !== null) {
           const match = sorted.find((s) => s.id === selectedIdRef.current);
           if (match) {
@@ -187,7 +195,7 @@ export function SessionSidebar({ selectedId, onSelect, onNewSession, onRunAll, o
             <button
               type="button"
               onClick={onRunAll}
-              disabled={!sessions.some((s) => s.phase === "Planned" || s.phase === "Suspended")}
+              disabled={!sessions.some((s) => s.phase === "Planned" || s.phase === "Suspended" || isApprovalReady(s))}
               className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded disabled:opacity-50"
               title="Run all pending sessions"
             >
